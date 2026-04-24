@@ -1,0 +1,17 @@
+.venv/
+.build-venv/
+__pycache__/
+*.py[cod]
+
+build/
+dist/
+*.spec.bak
+
+*.exe
+debug_runtime.log
+
+_test.docx
+_roundtrip_test.docx
+
+.DS_Store
+Thumbs.db

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini DOCX Web Editor</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app-shell" id="appShell">
+    <aside class="sidebar" id="leftSidebar" aria-label="左侧功能区">
+      <div class="sidebar-toggle-strip">
+        <button id="sidebarToggleBtn" class="chrome-toggle" type="button" aria-controls="leftSidebar" aria-expanded="true">隐藏左侧</button>
+      </div>
+      <div class="panel quick-actions-panel">
+        <div class="panel-head">
+          <h2>文档</h2>
+        </div>
+        <div class="quick-actions-grid">
+          <button id="newBtn" type="button">新建</button>
+          <button id="openBtn" type="button">打开文件</button>
+          <label class="file-btn fallback-file-btn quick-action-file">
+            选择文件
+            <input id="openDocxInput" type="file" accept=".docx">
+          </label>
+          <button id="saveBtn" type="button">保存文件</button>
+          <label class="file-btn alt quick-action-file">
+            插入图片
+            <input id="imageInput" type="file" accept="image/*" multiple>
+          </label>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>导航</h2>
+        </div>
+        <nav id="outline" class="outline"></nav>
+        <div class="outline-filter">
+          <label><input id="outlineLevel1" type="checkbox" checked> H1</label>
+          <label><input id="outlineLevel2" type="checkbox" checked> H2</label>
+          <label><input id="outlineLevel3" type="checkbox" checked> H3</label>
+        </div>
+      </div>
+
+      <div class="panel history-panel">
+        <div class="panel-head">
+          <h2>历史/常用</h2>
+          <button id="historyPanelBtn" class="ghost-btn" type="button">打开</button>
+        </div>
+        <p class="shortcut-summary">查看最近打开与常用目录，并浏览目录中的 DOCX 文件。</p>
+      </div>
+
+      <div class="panel shortcuts-panel">
+        <div class="panel-head">
+          <h2>快捷键</h2>
+          <button id="shortcutSettingsBtn" class="ghost-btn" type="button">设置</button>
+        </div>
+        <p class="shortcut-summary">在弹窗中管理快捷键，避免侧栏过长。</p>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="toolbar-wrap" id="topToolbar">
+        <div class="toolbar-control-row">
+          <button id="toolbarToggleBtn" class="chrome-toggle" type="button" aria-controls="topToolbar" aria-expanded="true">隐藏上方</button>
+        </div>
+
+        <div class="toolbar-groups">
+          <section class="tool-group">
+            <p class="tool-group-title">字体</p>
+            <div class="toolbar-row dense">
+              <select id="fontFamily">
+                <option>Georgia</option>
+                <option>Calibri</option>
+                <option>Arial</option>
+                <option>Times New Roman</option>
+                <option>Microsoft YaHei</option>
+                <option>SimSun</option>
+                <option>Consolas</option>
+              </select>
+
+              <select id="fontSize">
+                <option value="10">10</option>
+                <option value="12" selected>12</option>
+                <option value="14">14</option>
+                <option value="16">16</option>
+                <option value="18">18</option>
+                <option value="20">20</option>
+                <option value="24">24</option>
+                <option value="28">28</option>
+                <option value="32">32</option>
+              </select>
+
+              <button data-cmd="bold" type="button">B</button>
+              <button data-cmd="italic" type="button">I</button>
+              <button data-cmd="underline" type="button">U</button>
+              <input id="highlightColor" type="color" value="#fff2aa" title="文字底色">
+              <button id="applyHighlightBtn" type="button">底色</button>
+              <button id="clearFormatBtn" type="button">清除格式</button>
+              <button id="formatPainterBtn" type="button">格式刷</button>
+            </div>
+          </section>
+
+          <section class="tool-group">
+            <p class="tool-group-title">段落</p>
+            <div class="toolbar-row dense">
+              <div class="style-tools">
+                <select id="paragraphStyleSelect"></select>
+                <button id="saveStyleBtn" type="button">保存样式</button>
+                <button id="updateStyleBtn" type="button">更新样式</button>
+              </div>
+
+              <select id="lineSpacingSelect">
+                <option value="1">单倍行距</option>
+                <option value="1.5">1.5 倍行距</option>
+                <option value="2">2 倍行距</option>
+                <option value="2.5">2.5 倍行距</option>
+              </select>
+
+              <label class="inline-field">
+                段前
+                <input id="spaceBeforeInput" type="number" min="0" step="1" value="0">
+              </label>
+
+              <label class="inline-field">
+                段后
+                <input id="spaceAfterInput" type="number" min="0" step="1" value="0">
+              </label>
+
+              <button data-align="justifyLeft" type="button">左对齐</button>
+              <button data-align="justifyCenter" type="button">居中</button>
+              <button data-align="justifyRight" type="button">右对齐</button>
+              <button data-align="justifyFull" type="button">两端对齐</button>
+              <button id="resetParagraphSpacingBtn" type="button">重置间距</button>
+
+              <div class="numbering-tools">
+                <button id="toggleNumberingBtn" type="button">编号</button>
+                <button id="numberLevelUpBtn" type="button">升级</button>
+                <button id="numberLevelDownBtn" type="button">降级</button>
+                <select id="numberFormatSelect">
+                  <option value="decimal">1, 2, 3</option>
+                  <option value="upperLetter">A, B, C</option>
+                  <option value="lowerLetter">a, b, c</option>
+                  <option value="upperRoman">I, II, III</option>
+                  <option value="lowerRoman">i, ii, iii</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section class="tool-group">
+            <p class="tool-group-title">表格</p>
+            <div class="toolbar-row dense">
+              <button id="insertTableBtn" type="button">插入表格</button>
+              <button id="addRowBtn" type="button">加行</button>
+              <button id="removeRowBtn" type="button">删行</button>
+              <button id="addColBtn" type="button">加列</button>
+              <button id="removeColBtn" type="button">删列</button>
+              <button id="deleteTableBtn" type="button">删表</button>
+            </div>
+          </section>
+
+          <section class="tool-group">
+            <p class="tool-group-title">页面</p>
+            <div class="toolbar-row dense">
+              <select id="pageSizeSelect">
+                <option value="A4">A4 (210 x 297mm)</option>
+                <option value="Letter">Letter (216 x 279mm)</option>
+                <option value="Custom">自定义</option>
+              </select>
+              <label class="inline-field">
+                宽 (mm)
+                <input id="pageWidthInput" type="number" min="50" step="1" value="210">
+              </label>
+              <label class="inline-field">
+                高 (mm)
+                <input id="pageHeightInput" type="number" min="50" step="1" value="297">
+              </label>
+              <button id="applyPageSizeBtn" type="button">应用</button>
+            </div>
+          </section>
+        </div>
+      </header>
+
+      <section id="pageStage" class="page-stage">
+        <div id="editor" class="editor" contenteditable="true"></div>
+      </section>
+
+      <footer class="statusbar">
+        <span id="statusText">准备就绪</span>
+        <span>本地服务地址：<code id="serverAddress"></code></span>
+      </footer>
+    </main>
+  </div>
+
+  <template id="outlineItemTemplate">
+    <button class="outline-item" type="button"></button>
+  </template>
+
+  <div id="shortcutModal" class="modal hidden">
+    <div class="modal-backdrop" data-close-modal="true"></div>
+    <div class="modal-panel">
+      <div class="panel-head">
+        <h2>快捷键设置</h2>
+        <div class="modal-actions">
+          <button id="resetShortcutsBtn" class="ghost-btn" type="button">重置</button>
+          <button id="closeShortcutModalBtn" class="ghost-btn" type="button">关闭</button>
+        </div>
+      </div>
+      <div id="shortcutList" class="shortcut-list"></div>
+    </div>
+  </div>
+
+  <div id="historyModal" class="modal hidden">
+    <div class="modal-backdrop" data-close-modal="true"></div>
+    <div class="modal-panel">
+      <div class="panel-head">
+        <h2>历史记录与常用目录</h2>
+        <div class="modal-actions">
+          <button id="browseDirBtn" class="ghost-btn" type="button">浏览目录</button>
+          <button id="addFavoriteDirBtn" class="ghost-btn" type="button">添加常用目录</button>
+          <button id="closeHistoryModalBtn" class="ghost-btn" type="button">关闭</button>
+        </div>
+      </div>
+      <section class="history-section">
+        <h3>最近打开</h3>
+        <div id="recentFileList" class="history-list"></div>
+      </section>
+      <section class="history-section">
+        <h3>常用目录</h3>
+        <div id="favoriteDirList" class="history-list"></div>
+      </section>
+      <section class="history-section">
+        <h3>目录文件</h3>
+        <div id="dirFileList" class="history-list"></div>
+      </section>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
