@@ -8,7 +8,9 @@ dist/
 *.spec.bak
 
 *.exe
+!/MiniDocxTray.exe
 debug_runtime.log
+mini_docx_tray_state.json
 
 _test.docx
 _roundtrip_test.docx
