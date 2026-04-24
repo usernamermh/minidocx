@@ -33,7 +33,8 @@ DEFAULT_LATIN_FONT = "Times New Roman"
 DEFAULT_EAST_ASIA_FONT = "SimSun"
 DEFAULT_FONT_FAMILY = f"{DEFAULT_LATIN_FONT}, {DEFAULT_EAST_ASIA_FONT}"
 DEFAULT_LINE_SPACING = 1.5
-ALLOWED_STYLE_IDS = {"Normal", "Heading1", "Heading2", "Heading3"}
+ALLOWED_STYLE_ORDER = ("Normal", "Heading1", "Heading2", "Heading3")
+ALLOWED_STYLE_IDS = set(ALLOWED_STYLE_ORDER)
 STYLE_ALIAS_MAP = {
     "normal": "Normal",
     "正文": "Normal",
@@ -513,7 +514,35 @@ def _style_map(styles: list[dict]) -> dict[str, dict]:
 
 
 def _normalize_styles(payload: dict | None) -> list[dict]:
-    return _builtin_styles()
+    items = ((payload or {}).get("paragraph") or []) if isinstance(payload, dict) else []
+    incoming: dict[str, dict] = {}
+    for style in items:
+        if not isinstance(style, dict):
+            continue
+        style_id = _canonical_style_id(style.get("id"))
+        if style_id in ALLOWED_STYLE_IDS:
+            incoming[style_id] = style
+
+    merged: list[dict] = []
+    for base_style in _builtin_styles():
+        style_id = base_style["id"]
+        style = incoming.get(style_id) or {}
+        merged.append(
+            _make_style(
+                style_id,
+                base_style["name"],
+                style.get("descriptor", base_style.get("descriptor")),
+                str(style.get("alignment") or base_style.get("alignment") or "left"),
+                base_style.get("outline_level"),
+                bool(base_style.get("is_default")),
+                base_style.get("based_on"),
+                style.get("line_spacing", base_style.get("line_spacing", DEFAULT_LINE_SPACING)),
+                style.get("space_before", base_style.get("space_before", 0)),
+                style.get("space_after", base_style.get("space_after", 0)),
+                style.get("numbering"),
+            )
+        )
+    return merged
 
 
 def _safe_style_id(name: str, used: set[str]) -> str:
@@ -1206,7 +1235,84 @@ def _descriptor_from_properties(properties: ET.Element | None, fallback: list | 
 
 
 def _parse_styles(archive: zipfile.ZipFile) -> list[dict]:
-    return _builtin_styles()
+    try:
+        root = ET.fromstring(archive.read("word/styles.xml"))
+    except KeyError:
+        return _builtin_styles()
+
+    default_descriptor = _default_descriptor()
+    defaults_root = root.find(qn("w", "docDefaults"))
+    if defaults_root is not None:
+        rpr_default = defaults_root.find(f"{qn('w', 'rPrDefault')}/{qn('w', 'rPr')}")
+        if rpr_default is not None:
+            default_descriptor = _descriptor_from_properties(rpr_default, default_descriptor)
+
+    parsed: list[dict] = []
+    for node in root.findall(qn("w", "style")):
+        if node.attrib.get(qn("w", "type")) != "paragraph":
+            continue
+        raw_style_id = node.attrib.get(qn("w", "styleId")) or ""
+        name_node = node.find(qn("w", "name"))
+        raw_name = name_node.attrib.get(qn("w", "val")) if name_node is not None else ""
+        style_id = _canonical_style_id(raw_style_id) or _canonical_style_id(raw_name)
+        if style_id not in ALLOWED_STYLE_IDS:
+            continue
+
+        base_style = _style_map(_builtin_styles())[style_id]
+        p_pr = node.find(qn("w", "pPr"))
+        r_pr = node.find(qn("w", "rPr"))
+        alignment = base_style.get("alignment", "left")
+        line_spacing = base_style.get("line_spacing", DEFAULT_LINE_SPACING)
+        space_before = base_style.get("space_before", 0)
+        space_after = base_style.get("space_after", 0)
+        style_numbering = None
+
+        if p_pr is not None:
+            jc = p_pr.find(qn("w", "jc"))
+            if jc is not None:
+                alignment = {
+                    "both": "justify",
+                    "distribute": "justify",
+                    "justify": "justify",
+                }.get(jc.attrib.get(qn("w", "val"), "left"), jc.attrib.get(qn("w", "val"), "left"))
+            spacing = p_pr.find(qn("w", "spacing"))
+            if spacing is not None:
+                line_raw = spacing.attrib.get(qn("w", "line"))
+                before_raw = spacing.attrib.get(qn("w", "before"))
+                after_raw = spacing.attrib.get(qn("w", "after"))
+                if line_raw:
+                    line_spacing = max(int(line_raw) / 240, 1.0)
+                if before_raw:
+                    space_before = max(int(before_raw) // 20, 0)
+                if after_raw:
+                    space_after = max(int(after_raw) // 20, 0)
+            num_pr = p_pr.find(qn("w", "numPr"))
+            if num_pr is not None:
+                num_id_node = num_pr.find(qn("w", "numId"))
+                ilvl_node = num_pr.find(qn("w", "ilvl"))
+                num_id = num_id_node.attrib.get(qn("w", "val")) if num_id_node is not None else None
+                if num_id:
+                    style_numbering = {
+                        "num_id": str(num_id),
+                        "ilvl": _normalize_ilvl(ilvl_node.attrib.get(qn("w", "val"), "0") if ilvl_node is not None else 0),
+                    }
+
+        parsed.append(
+            _make_style(
+                style_id,
+                base_style["name"],
+                _descriptor_from_properties(r_pr, default_descriptor),
+                alignment,
+                base_style.get("outline_level"),
+                bool(base_style.get("is_default")),
+                base_style.get("based_on"),
+                line_spacing,
+                space_before,
+                space_after,
+                style_numbering,
+            )
+        )
+    return _normalize_styles({"paragraph": parsed})
 
 
 def _parse_style_aliases(archive: zipfile.ZipFile) -> dict[str, str]:
