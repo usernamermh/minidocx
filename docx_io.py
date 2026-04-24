@@ -412,6 +412,19 @@ def _set_docx_rfonts(r_pr, family: object) -> None:
     r_fonts.set(docx_qn("w:eastAsia"), east_asia)
 
 
+def _toggle_property_enabled(node: ET.Element | None, *, none_is_false: bool = False) -> bool:
+    if node is None:
+        return False
+    raw = node.attrib.get(qn("w", "val"))
+    if raw is None:
+        return True
+    normalized = str(raw).strip().lower()
+    false_values = {"0", "false", "off"}
+    if none_is_false:
+        false_values.add("none")
+    return normalized not in false_values
+
+
 _HIGHLIGHT_MAP = {
     "yellow": "#ffff00",
     "green": "#00ff00",
@@ -1168,12 +1181,15 @@ def _descriptor_from_properties(properties: ET.Element | None, fallback: list | 
     sz = properties.find(qn("w", "sz"))
     if sz is not None:
         descriptor[1] = max(int(sz.attrib.get(qn("w", "val"), str(descriptor[1] * 2))) // 2, 1)
-    if properties.find(qn("w", "b")) is not None:
-        descriptor[2] = True
-    if properties.find(qn("w", "i")) is not None:
-        descriptor[3] = True
-    if properties.find(qn("w", "u")) is not None:
-        descriptor[4] = True
+    bold_node = properties.find(qn("w", "b"))
+    italic_node = properties.find(qn("w", "i"))
+    underline_node = properties.find(qn("w", "u"))
+    if bold_node is not None:
+        descriptor[2] = _toggle_property_enabled(bold_node)
+    if italic_node is not None:
+        descriptor[3] = _toggle_property_enabled(italic_node)
+    if underline_node is not None:
+        descriptor[4] = _toggle_property_enabled(underline_node, none_is_false=True)
     shd = properties.find(qn("w", "shd"))
     if shd is not None:
         fill = shd.attrib.get(qn("w", "fill"))
