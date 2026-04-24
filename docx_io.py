@@ -33,6 +33,26 @@ DEFAULT_LATIN_FONT = "Times New Roman"
 DEFAULT_EAST_ASIA_FONT = "SimSun"
 DEFAULT_FONT_FAMILY = f"{DEFAULT_LATIN_FONT}, {DEFAULT_EAST_ASIA_FONT}"
 DEFAULT_LINE_SPACING = 1.5
+ALLOWED_STYLE_IDS = {"Normal", "Heading1", "Heading2", "Heading3"}
+STYLE_ALIAS_MAP = {
+    "normal": "Normal",
+    "正文": "Normal",
+    "h1": "Heading1",
+    "heading1": "Heading1",
+    "heading 1": "Heading1",
+    "标题1": "Heading1",
+    "标题 1": "Heading1",
+    "h2": "Heading2",
+    "heading2": "Heading2",
+    "heading 2": "Heading2",
+    "标题2": "Heading2",
+    "标题 2": "Heading2",
+    "h3": "Heading3",
+    "heading3": "Heading3",
+    "heading 3": "Heading3",
+    "标题3": "Heading3",
+    "标题 3": "Heading3",
+}
 
 
 def qn(prefix: str, name: str) -> str:
@@ -317,6 +337,15 @@ def _default_descriptor() -> list:
     return [DEFAULT_FONT_FAMILY, 12, False, False, False, ""]
 
 
+def _canonical_style_id(value: object) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    compact = re.sub(r"\s+", "", raw).lower()
+    lowered = raw.lower()
+    return STYLE_ALIAS_MAP.get(lowered) or STYLE_ALIAS_MAP.get(compact)
+
+
 def _normalize_descriptor(descriptor: list | tuple | None) -> list:
     values = list((descriptor or _default_descriptor())[:6])
     values += _default_descriptor()[len(values):]
@@ -471,32 +500,7 @@ def _style_map(styles: list[dict]) -> dict[str, dict]:
 
 
 def _normalize_styles(payload: dict | None) -> list[dict]:
-    items = ((payload or {}).get("paragraph") or []) if isinstance(payload, dict) else []
-    merged: list[dict] = []
-    seen: set[str] = set()
-    for style in list(items) + _builtin_styles():
-        style_id = str(style.get("id") or "").strip()
-        if not style_id or style_id in seen:
-            continue
-        seen.add(style_id)
-        merged.append(
-            _make_style(
-                style_id,
-                str(style.get("name") or style_id),
-                style.get("descriptor"),
-                str(style.get("alignment") or "left"),
-                style.get("outline_level"),
-                bool(style.get("is_default") or style_id == "Normal"),
-                style.get("based_on"),
-                style.get("line_spacing", DEFAULT_LINE_SPACING),
-                style.get("space_before", 0),
-                style.get("space_after", 0),
-                style.get("numbering"),
-            )
-        )
-    if "Normal" not in seen:
-        merged.insert(0, _builtin_styles()[0])
-    return merged
+    return _builtin_styles()
 
 
 def _safe_style_id(name: str, used: set[str]) -> str:
@@ -509,8 +513,23 @@ def _safe_style_id(name: str, used: set[str]) -> str:
     return candidate
 
 
+def _clear_imported_paragraph_format(block: dict) -> dict:
+    block["style"] = "normal"
+    block["style_id"] = "Normal"
+    block["style_name"] = "Normal"
+    block["alignment"] = "align_left"
+    block["line_spacing"] = DEFAULT_LINE_SPACING
+    block["space_before"] = 0
+    block["space_after"] = 0
+    block.pop("numbering", None)
+    default_descriptor = _default_descriptor()
+    for run in block.get("runs") or []:
+        run["descriptor"] = default_descriptor
+    return block
+
+
 def _style_ref_for_block(block: dict, styles: dict[str, dict]) -> str:
-    style_id = str(block.get("style_id") or "").strip()
+    style_id = _canonical_style_id(block.get("style_id"))
     if style_id and style_id in styles:
         return style_id
     style_key = str(block.get("style") or "")
@@ -1171,87 +1190,28 @@ def _descriptor_from_properties(properties: ET.Element | None, fallback: list | 
 
 
 def _parse_styles(archive: zipfile.ZipFile) -> list[dict]:
+    return _builtin_styles()
+
+
+def _parse_style_aliases(archive: zipfile.ZipFile) -> dict[str, str]:
+    aliases: dict[str, str] = {}
     try:
         root = ET.fromstring(archive.read("word/styles.xml"))
     except KeyError:
-        return _builtin_styles()
+        return aliases
 
-    default_descriptor = _default_descriptor()
-    defaults_root = root.find(qn("w", "docDefaults"))
-    if defaults_root is not None:
-        rpr_default = defaults_root.find(f"{qn('w', 'rPrDefault')}/{qn('w', 'rPr')}")
-        if rpr_default is not None:
-            default_descriptor = _descriptor_from_properties(rpr_default, default_descriptor)
-
-    parsed: list[dict] = []
-    used: set[str] = set()
     for node in root.findall(qn("w", "style")):
         if node.attrib.get(qn("w", "type")) != "paragraph":
             continue
-        style_id = node.attrib.get(qn("w", "styleId")) or ""
-        if not style_id or style_id in used:
+        raw_style_id = node.attrib.get(qn("w", "styleId")) or ""
+        if not raw_style_id:
             continue
-        used.add(style_id)
         name_node = node.find(qn("w", "name"))
-        p_pr = node.find(qn("w", "pPr"))
-        r_pr = node.find(qn("w", "rPr"))
-        based_on_node = node.find(qn("w", "basedOn"))
-        alignment = "left"
-        outline_level = None
-        line_spacing = DEFAULT_LINE_SPACING
-        space_before = 0
-        space_after = 0
-        style_numbering = None
-        if p_pr is not None:
-            jc = p_pr.find(qn("w", "jc"))
-            if jc is not None:
-                alignment = {
-                    "both": "justify",
-                    "distribute": "justify",
-                    "justify": "justify",
-                }.get(jc.attrib.get(qn("w", "val"), "left"), jc.attrib.get(qn("w", "val"), "left"))
-            outline = p_pr.find(qn("w", "outlineLvl"))
-            if outline is not None:
-                raw = outline.attrib.get(qn("w", "val"))
-                if raw in {"0", "1", "2"}:
-                    outline_level = int(raw)
-            spacing = p_pr.find(qn("w", "spacing"))
-            if spacing is not None:
-                line_raw = spacing.attrib.get(qn("w", "line"))
-                before_raw = spacing.attrib.get(qn("w", "before"))
-                after_raw = spacing.attrib.get(qn("w", "after"))
-                if line_raw:
-                    line_spacing = max(int(line_raw) / 240, 1.0)
-                if before_raw:
-                    space_before = max(int(before_raw) // 20, 0)
-                if after_raw:
-                    space_after = max(int(after_raw) // 20, 0)
-            num_pr = p_pr.find(qn("w", "numPr"))
-            if num_pr is not None:
-                num_id_node = num_pr.find(qn("w", "numId"))
-                ilvl_node = num_pr.find(qn("w", "ilvl"))
-                num_id = num_id_node.attrib.get(qn("w", "val")) if num_id_node is not None else None
-                if num_id:
-                    style_numbering = {
-                        "num_id": str(num_id),
-                        "ilvl": _normalize_ilvl(ilvl_node.attrib.get(qn("w", "val"), "0") if ilvl_node is not None else 0),
-                    }
-        parsed.append(
-            _make_style(
-                style_id,
-                (name_node.attrib.get(qn("w", "val")) if name_node is not None else style_id) or style_id,
-                _descriptor_from_properties(r_pr, default_descriptor),
-                alignment,
-                outline_level,
-                node.attrib.get(qn("w", "default")) == "1",
-                based_on_node.attrib.get(qn("w", "val")) if based_on_node is not None else None,
-                line_spacing,
-                space_before,
-                space_after,
-                style_numbering,
-            )
-        )
-    return _normalize_styles({"paragraph": parsed})
+        raw_name = name_node.attrib.get(qn("w", "val")) if name_node is not None else ""
+        canonical = _canonical_style_id(raw_style_id) or _canonical_style_id(raw_name)
+        if canonical:
+            aliases[raw_style_id] = canonical
+    return aliases
 
 
 def _merge_runs(runs: list[dict]) -> list[dict]:
@@ -1308,15 +1268,23 @@ def _parse_paragraph_node(
     archive: zipfile.ZipFile,
     rel_map: dict[str, str],
     styles_by_id: dict[str, dict],
+    style_aliases: dict[str, str],
     numbering_by_num_id: dict[str, dict[int, dict]],
 ) -> tuple[dict | None, list[dict]]:
     style_id = "Normal"
+    clear_imported_format = False
     alignment = "align_left"
     p_pr = paragraph.find(qn("w", "pPr"))
     if p_pr is not None:
         p_style = p_pr.find(qn("w", "pStyle"))
         if p_style is not None:
-            style_id = p_style.attrib.get(qn("w", "val"), "Normal") or "Normal"
+            raw_style_id = p_style.attrib.get(qn("w", "val"), "Normal") or "Normal"
+            canonical_style_id = _canonical_style_id(raw_style_id) or style_aliases.get(raw_style_id)
+            if canonical_style_id:
+                style_id = canonical_style_id
+            else:
+                style_id = "Normal"
+                clear_imported_format = True
         jc = p_pr.find(qn("w", "jc"))
         if jc is not None:
             alignment = {
@@ -1340,7 +1308,7 @@ def _parse_paragraph_node(
             "right": "align_right",
             "justify": "align_justify",
         }.get((style_info or {}).get("alignment", "left"), "align_left")
-    if p_pr is not None:
+    if p_pr is not None and not clear_imported_format:
         spacing = p_pr.find(qn("w", "spacing"))
         if spacing is not None:
             line_raw = spacing.attrib.get(qn("w", "line"))
@@ -1363,7 +1331,7 @@ def _parse_paragraph_node(
                     ilvl_node.attrib.get(qn("w", "val"), "0") if ilvl_node is not None else 0,
                     numbering_by_num_id,
                 )
-    if numbering is None:
+    if numbering is None and not clear_imported_format:
         style_numbering = _resolve_style_numbering(style_id, styles_by_id)
         if style_numbering is not None:
             numbering = _numbering_from_num_id(
@@ -1374,7 +1342,7 @@ def _parse_paragraph_node(
 
     runs: list[dict] = []
     images: list[dict] = []
-    paragraph_descriptor = (style_info or {}).get("descriptor") or _default_descriptor()
+    paragraph_descriptor = _default_descriptor() if clear_imported_format else ((style_info or {}).get("descriptor") or _default_descriptor())
     for run in paragraph.findall(qn("w", "r")):
         descriptor = _descriptor_from_properties(run.find(qn("w", "rPr")), paragraph_descriptor)
         for text_node in run.findall(qn("w", "t")):
@@ -1422,6 +1390,8 @@ def _parse_paragraph_node(
         }
         if numbering is not None:
             block["numbering"] = numbering
+        if clear_imported_format:
+            block = _clear_imported_paragraph_format(block)
     return block, images
 
 
@@ -1430,6 +1400,7 @@ def _parse_table_node(
     archive: zipfile.ZipFile,
     rel_map: dict[str, str],
     styles_by_id: dict[str, dict],
+    style_aliases: dict[str, str],
     numbering_by_num_id: dict[str, dict[int, dict]],
 ) -> dict:
     rows: list[list[dict]] = []
@@ -1438,7 +1409,7 @@ def _parse_table_node(
         for tc in tr.findall(qn("w", "tc")):
             cell_paragraphs: list[dict] = []
             for paragraph in tc.findall(qn("w", "p")):
-                block, _ = _parse_paragraph_node(paragraph, archive, rel_map, styles_by_id, numbering_by_num_id)
+                block, _ = _parse_paragraph_node(paragraph, archive, rel_map, styles_by_id, style_aliases, numbering_by_num_id)
                 if block is not None:
                     cell_paragraphs.append(block)
             if not cell_paragraphs:
@@ -1458,17 +1429,9 @@ def docx_bytes_to_document(data: bytes) -> dict:
     blocks: list[dict] = []
     with zipfile.ZipFile(io.BytesIO(data), "r") as archive:
         meta: dict[str, str] = {}
-        meta["source_docx_b64"] = base64.b64encode(data).decode("ascii")
-        try:
-            meta["styles_xml_b64"] = base64.b64encode(archive.read("word/styles.xml")).decode("ascii")
-        except KeyError:
-            pass
-        try:
-            meta["numbering_xml_b64"] = base64.b64encode(archive.read("word/numbering.xml")).decode("ascii")
-        except KeyError:
-            pass
         styles = _parse_styles(archive)
         styles_by_id = _style_map(styles)
+        style_aliases = _parse_style_aliases(archive)
         rel_map = _load_relationships(archive)
         numbering_by_num_id = _parse_numbering(archive)
         root = ET.fromstring(archive.read("word/document.xml"))
@@ -1489,12 +1452,12 @@ def docx_bytes_to_document(data: bytes) -> dict:
 
         for child in list(body):
             if child.tag == qn("w", "p"):
-                block, images = _parse_paragraph_node(child, archive, rel_map, styles_by_id, numbering_by_num_id)
+                block, images = _parse_paragraph_node(child, archive, rel_map, styles_by_id, style_aliases, numbering_by_num_id)
                 if block is not None:
                     blocks.append(block)
                 blocks.extend(images)
             elif child.tag == qn("w", "tbl"):
-                blocks.append(_parse_table_node(child, archive, rel_map, styles_by_id, numbering_by_num_id))
+                blocks.append(_parse_table_node(child, archive, rel_map, styles_by_id, style_aliases, numbering_by_num_id))
     result = {"blocks": blocks, "styles": {"paragraph": styles}, "page": page_size}
     if meta:
         result["_docx_meta"] = meta
