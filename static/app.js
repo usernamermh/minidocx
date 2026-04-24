@@ -91,6 +91,7 @@ const DEFAULT_FONT_FAMILY = '"Times New Roman", SimSun';
 const DEFAULT_LINE_SPACING = 1.5;
 const OPENED_DOCUMENT_WIDTH_MM = 350;
 const DEFAULT_DOCUMENT_HEIGHT_MM = 297;
+const ALLOWED_STYLE_ORDER = ["Normal", "Heading1", "Heading2", "Heading3"];
 const DEFAULT_SHORTCUTS = {
   bold: "Ctrl+B",
   italic: "Ctrl+I",
@@ -677,7 +678,26 @@ function normalizeStyleNumbering(numbering) {
 }
 
 function normalizeStyles(styles) {
-  return defaultStyles();
+  const incoming = new Map();
+  if (styles && Array.isArray(styles.paragraph)) {
+    styles.paragraph.forEach((style) => {
+      const id = String(style?.id || "").trim();
+      if (ALLOWED_STYLE_ORDER.includes(id)) incoming.set(id, style);
+    });
+  }
+  const merged = defaultStyles().paragraph.map((baseStyle) => {
+    const style = incoming.get(baseStyle.id) || {};
+    return {
+      ...baseStyle,
+      descriptor: cloneDescriptor(style.descriptor || baseStyle.descriptor),
+      alignment: ["left", "center", "right", "justify"].includes(style.alignment) ? style.alignment : baseStyle.alignment,
+      line_spacing: Math.max(Number(style.line_spacing ?? baseStyle.line_spacing) || DEFAULT_LINE_SPACING, 1),
+      space_before: Math.max(Number(style.space_before ?? baseStyle.space_before) || 0, 0),
+      space_after: Math.max(Number(style.space_after ?? baseStyle.space_after) || 0, 0),
+      numbering: normalizeStyleNumbering(style.numbering),
+    };
+  });
+  return { paragraph: merged };
 }
 
 function styleMap() {
@@ -1714,6 +1734,26 @@ function applyFontFamilyToBlock(block, family) {
   return true;
 }
 
+function applyFontSizeToBlock(block, pointSize) {
+  if (!block || !Number.isFinite(pointSize) || pointSize <= 0) return false;
+  const px = `${pointSize / 0.75}px`;
+  block.style.fontSize = px;
+  const runs = inlineStyledRuns(block);
+  if (!runs.length) {
+    const text = block.textContent || "";
+    block.innerHTML = "";
+    const span = document.createElement("span");
+    span.textContent = text;
+    span.style.fontSize = px;
+    block.appendChild(span);
+    return true;
+  }
+  runs.forEach((run) => {
+    run.style.fontSize = px;
+  });
+  return true;
+}
+
 function syncStyledRunsForStyleUpdate(block, previousDescriptor, nextDescriptor) {
   if (!block) return;
   const runs = Array.from(block.querySelectorAll("span, font")).filter((node) => {
@@ -2618,7 +2658,7 @@ function isTextInputOutsideEditor(target) {
 }
 
 function saveCurrentStyle() {
-  setStatus("当前仅保留 H1、H2、H3、Normal 四种样式，不能新增样式。");
+  updateStyleFromSelection();
 }
 
 function updateStyleFromSelection() {
@@ -2636,7 +2676,14 @@ function updateStyleFromSelection() {
   }
   const previousDescriptor = cloneDescriptor(style.descriptor);
   const metrics = paragraphMetricsFromElement(block);
-  style.descriptor = selectionDescriptorOrBlockDescriptor(block);
+  const nextDescriptor = selectionDescriptorOrBlockDescriptor(block);
+  if (fontFamily?.value) {
+    nextDescriptor[0] = fontFamilyForDocument(fontFamily.value);
+  }
+  if (fontSize?.value) {
+    nextDescriptor[1] = Math.max(Number(fontSize.value) || nextDescriptor[1], 1);
+  }
+  style.descriptor = nextDescriptor;
   style.alignment = { align_left: "left", align_center: "center", align_right: "right", align_justify: "justify" }[blockAlignment(block)] || "left";
   style.line_spacing = Number(metrics.lineSpacing) || style.line_spacing || DEFAULT_LINE_SPACING;
   style.space_before = Number(metrics.spaceBefore) || 0;
@@ -2888,6 +2935,24 @@ fontSize.addEventListener("change", () => {
   debugLog("fontSize:change", summarizeCurrentSelectionForDebug());
   const targetPointSize = Number(fontSize.value);
   if (!Number.isFinite(targetPointSize) || targetPointSize <= 0) return;
+  const selection = window.getSelection();
+  const collapsed = !selection || selection.rangeCount === 0 || selection.getRangeAt(0).collapsed;
+  if (collapsed) {
+    restoreEditorSelection();
+    const blocks = selectedBlockElements();
+    if (!blocks.length) {
+      setStatus("请先选中文字或把光标放在正文中。");
+      return;
+    }
+    recordUndoSnapshot();
+    blocks.forEach((block) => applyFontSizeToBlock(block, targetPointSize));
+    captureEditorSelection();
+    syncSelectionUi();
+    markDirty();
+    refreshOutline();
+    setStatus(`已应用字号 ${targetPointSize}pt`);
+    return;
+  }
   if (!selectionInsideEditor() && !restoreEditorSelection()) {
     setStatus("请先选中文字或把光标放在正文中。");
     return;
@@ -3214,8 +3279,7 @@ loadOutlineFilter();
 loadShortcuts();
 initLayoutToggles();
 if (saveStyleBtn) {
-  saveStyleBtn.disabled = true;
-  saveStyleBtn.title = "当前仅保留 H1、H2、H3、Normal 四种样式";
+  saveStyleBtn.title = "保存到当前 H1、H2、H3 或 Normal 样式";
 }
 populateStyleSelect("Normal");
 renderShortcutInputs();
