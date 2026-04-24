@@ -335,8 +335,9 @@ select:hover,
   border-radius: 8px;
   box-shadow: 0 30px 50px rgba(44, 34, 24, 0.16);
   outline: none;
-  line-height: 1;
+  line-height: 1.5;
   font-size: 12pt;
+  font-family: "Times New Roman", SimSun, serif;
   transform-origin: top center;
 }
 
@@ -349,7 +350,7 @@ select:hover,
 .editor h2,
 .editor h3 {
   margin: 0;
-  line-height: 1;
+  line-height: 1.5;
 }
 
 .editor .numbered-paragraph {

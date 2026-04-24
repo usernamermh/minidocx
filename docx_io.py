@@ -29,6 +29,10 @@ for prefix, uri in XML_NS.items():
 
 NUMBER_FORMATS = {"decimal", "upperLetter", "lowerLetter", "upperRoman", "lowerRoman", "bullet"}
 MAX_NUMBERING_LEVEL = 8
+DEFAULT_LATIN_FONT = "Times New Roman"
+DEFAULT_EAST_ASIA_FONT = "SimSun"
+DEFAULT_FONT_FAMILY = f"{DEFAULT_LATIN_FONT}, {DEFAULT_EAST_ASIA_FONT}"
+DEFAULT_LINE_SPACING = 1.5
 
 
 def qn(prefix: str, name: str) -> str:
@@ -310,14 +314,14 @@ def _parse_numbering(archive: zipfile.ZipFile) -> dict[str, dict[int, dict]]:
 
 
 def _default_descriptor() -> list:
-    return ["Calibri", 12, False, False, False, ""]
+    return [DEFAULT_FONT_FAMILY, 12, False, False, False, ""]
 
 
 def _normalize_descriptor(descriptor: list | tuple | None) -> list:
     values = list((descriptor or _default_descriptor())[:6])
     values += _default_descriptor()[len(values):]
     family, size, bold, italic, underline, bg_color = values[:6]
-    family = str(family or "Calibri")
+    family = str(family or DEFAULT_FONT_FAMILY)
     size = max(int(round(float(size or 12))), 1)
     bg_color = _normalize_color(bg_color)
     return [family, size, bool(bold), bool(italic), bool(underline), bg_color]
@@ -350,6 +354,33 @@ def _normalize_color(value: object) -> str:
         b = max(0, min(255, b))
         return f"#{r:02x}{g:02x}{b:02x}"
     return ""
+
+
+def _split_font_family(family: object) -> tuple[str, str]:
+    parts = [part.strip().strip("\"'") for part in str(family or DEFAULT_FONT_FAMILY).split(",") if part.strip()]
+    latin = parts[0] if parts else DEFAULT_LATIN_FONT
+    east_asia = parts[1] if len(parts) > 1 else (DEFAULT_EAST_ASIA_FONT if latin == DEFAULT_LATIN_FONT else latin)
+    return latin, east_asia
+
+
+def _rfonts_attrs(family: object) -> dict[str, str]:
+    latin, east_asia = _split_font_family(family)
+    return {
+        qn("w", "ascii"): latin,
+        qn("w", "hAnsi"): latin,
+        qn("w", "eastAsia"): east_asia,
+    }
+
+
+def _set_docx_rfonts(r_pr, family: object) -> None:
+    latin, east_asia = _split_font_family(family)
+    r_fonts = r_pr.find(docx_qn("w:rFonts"))
+    if r_fonts is None:
+        r_fonts = OxmlElement("w:rFonts")
+        r_pr.append(r_fonts)
+    r_fonts.set(docx_qn("w:ascii"), latin)
+    r_fonts.set(docx_qn("w:hAnsi"), latin)
+    r_fonts.set(docx_qn("w:eastAsia"), east_asia)
 
 
 _HIGHLIGHT_MAP = {
@@ -389,7 +420,7 @@ def _make_style(
     outline_level: int | None = None,
     is_default: bool = False,
     based_on: str | None = None,
-    line_spacing: float = 1.0,
+    line_spacing: float = DEFAULT_LINE_SPACING,
     space_before: int = 0,
     space_after: int = 0,
     numbering: dict | None = None,
@@ -403,7 +434,7 @@ def _make_style(
         "outline_level": outline_level if outline_level in {0, 1, 2} else None,
         "is_default": bool(is_default),
         "based_on": based_on or None,
-        "line_spacing": _normalize_line_spacing(line_spacing, 1.0),
+        "line_spacing": _normalize_line_spacing(line_spacing, DEFAULT_LINE_SPACING),
         "space_before": _normalize_spacing(space_before, 0),
         "space_after": _normalize_spacing(space_after, 0),
         "numbering": _normalize_style_numbering(numbering),
@@ -418,7 +449,7 @@ def _normalize_spacing(value: object, fallback: int) -> int:
         return fallback
 
 
-def _normalize_line_spacing(value: object, fallback: float = 1.0) -> float:
+def _normalize_line_spacing(value: object, fallback: float = DEFAULT_LINE_SPACING) -> float:
     try:
         raw = fallback if value is None else value
         return max(float(str(raw)), 1.0)
@@ -428,10 +459,10 @@ def _normalize_line_spacing(value: object, fallback: float = 1.0) -> float:
 
 def _builtin_styles() -> list[dict]:
     return [
-        _make_style("Normal", "Normal", ["Calibri", 12, False, False, False], is_default=True),
-        _make_style("Heading1", "Heading 1", ["Calibri", 20, True, False, False], outline_level=0, based_on="Normal"),
-        _make_style("Heading2", "Heading 2", ["Calibri", 16, True, False, False], outline_level=1, based_on="Normal"),
-        _make_style("Heading3", "Heading 3", ["Calibri", 14, True, False, False], outline_level=2, based_on="Normal"),
+        _make_style("Normal", "Normal", [DEFAULT_FONT_FAMILY, 12, False, False, False], is_default=True),
+        _make_style("Heading1", "Heading 1", [DEFAULT_FONT_FAMILY, 20, True, False, False], outline_level=0, based_on="Normal"),
+        _make_style("Heading2", "Heading 2", [DEFAULT_FONT_FAMILY, 16, True, False, False], outline_level=1, based_on="Normal"),
+        _make_style("Heading3", "Heading 3", [DEFAULT_FONT_FAMILY, 14, True, False, False], outline_level=2, based_on="Normal"),
     ]
 
 
@@ -457,7 +488,7 @@ def _normalize_styles(payload: dict | None) -> list[dict]:
                 style.get("outline_level"),
                 bool(style.get("is_default") or style_id == "Normal"),
                 style.get("based_on"),
-                style.get("line_spacing", 1.0),
+                style.get("line_spacing", DEFAULT_LINE_SPACING),
                 style.get("space_before", 0),
                 style.get("space_after", 0),
                 style.get("numbering"),
@@ -562,7 +593,7 @@ def _append_run_properties(parent: ET.Element, descriptor: list) -> None:
     ET.SubElement(
         parent,
         qn("w", "rFonts"),
-        {qn("w", "ascii"): family, qn("w", "hAnsi"): family, qn("w", "eastAsia"): family},
+        _rfonts_attrs(family),
     )
     ET.SubElement(parent, qn("w", "sz"), {qn("w", "val"): str(size * 2)})
     if bold:
@@ -607,7 +638,7 @@ def _styles_xml(styles_payload: dict | None = None) -> bytes:
             {
                 qn("w", "before"): str(_normalize_spacing(style.get("space_before"), 0) * 20),
                 qn("w", "after"): str(_normalize_spacing(style.get("space_after"), 0) * 20),
-                qn("w", "line"): str(int(round(_normalize_line_spacing(style.get("line_spacing"), 1.0) * 240))),
+                qn("w", "line"): str(int(round(_normalize_line_spacing(style.get("line_spacing"), DEFAULT_LINE_SPACING) * 240))),
                 qn("w", "lineRule"): "auto",
             },
         )
@@ -685,7 +716,7 @@ def _paragraph_node(block: dict, styles: dict[str, dict], list_id_to_num_id: dic
         {
             qn("w", "before"): str(_normalize_spacing(block.get("space_before"), int(style_spacing.get("space_before", 0))) * 20),
             qn("w", "after"): str(_normalize_spacing(block.get("space_after"), int(style_spacing.get("space_after", 0))) * 20),
-            qn("w", "line"): str(int(round(_normalize_line_spacing(block.get("line_spacing"), float(style_spacing.get("line_spacing", 1.0))) * 240))),
+            qn("w", "line"): str(int(round(_normalize_line_spacing(block.get("line_spacing"), float(style_spacing.get("line_spacing", DEFAULT_LINE_SPACING))) * 240))),
             qn("w", "lineRule"): "auto",
         },
     )
@@ -804,14 +835,14 @@ def _ensure_docx_paragraph_style(doc, style_info: dict, style_name_by_id: dict[s
         "Heading3": "Heading 3",
     }.get(style_id)
     if builtin_name:
-        style_name_by_id[style_id] = builtin_name
-        return builtin_name
-
-    style_name = str(style_info.get("name") or style_id)
-    try:
-        style = doc.styles[style_name]
-    except KeyError:
-        style = doc.styles.add_style(style_name, WD_STYLE_TYPE.PARAGRAPH)
+        style_name = builtin_name
+        style = doc.styles[builtin_name]
+    else:
+        style_name = str(style_info.get("name") or style_id)
+        try:
+            style = doc.styles[style_name]
+        except KeyError:
+            style = doc.styles.add_style(style_name, WD_STYLE_TYPE.PARAGRAPH)
     based_on = str(style_info.get("based_on") or "").strip()
     if based_on:
         base_name = style_name_by_id.get(based_on) or {
@@ -826,13 +857,15 @@ def _ensure_docx_paragraph_style(doc, style_info: dict, style_name_by_id: dict[s
             except KeyError:
                 pass
     descriptor = _normalize_descriptor(style_info.get("descriptor"))
-    style.font.name = descriptor[0]
+    latin_font, _ = _split_font_family(descriptor[0])
+    style.font.name = latin_font
     style.font.size = Pt(descriptor[1])
     style.font.bold = descriptor[2]
     style.font.italic = descriptor[3]
     style.font.underline = descriptor[4]
+    _set_docx_rfonts(style.element.get_or_add_rPr(), descriptor[0])
     style.paragraph_format.alignment = _ALIGNMENT_TO_DOCX.get(str(style_info.get("alignment") or "left"), WD_ALIGN_PARAGRAPH.LEFT)
-    style.paragraph_format.line_spacing = _normalize_line_spacing(style_info.get("line_spacing"), 1.0)
+    style.paragraph_format.line_spacing = _normalize_line_spacing(style_info.get("line_spacing"), DEFAULT_LINE_SPACING)
     style.paragraph_format.space_before = Pt(_normalize_spacing(style_info.get("space_before"), 0))
     style.paragraph_format.space_after = Pt(_normalize_spacing(style_info.get("space_after"), 0))
     outline_level = style_info.get("outline_level")
@@ -865,7 +898,9 @@ def _set_docx_run_background(run, bg_color: str) -> None:
 
 def _apply_docx_run_descriptor(run, descriptor: list | tuple | None) -> None:
     family, size, bold, italic, underline, bg_color = _normalize_descriptor(descriptor)
-    run.font.name = family
+    latin_font, _ = _split_font_family(family)
+    run.font.name = latin_font
+    _set_docx_rfonts(run._element.get_or_add_rPr(), family)
     run.font.size = Pt(size)
     run.bold = bold
     run.italic = italic
@@ -920,7 +955,7 @@ def _apply_docx_paragraph_format(paragraph, block: dict, style_info: dict | None
         _normalize_spacing(block.get("space_after"), int((style_info or {}).get("space_after", 0)))
     )
     paragraph.paragraph_format.line_spacing = _normalize_line_spacing(
-        block.get("line_spacing"), float((style_info or {}).get("line_spacing", 1.0))
+        block.get("line_spacing"), float((style_info or {}).get("line_spacing", DEFAULT_LINE_SPACING))
     )
 
 
@@ -1105,12 +1140,12 @@ def _descriptor_from_properties(properties: ET.Element | None, fallback: list | 
         return descriptor
     r_fonts = properties.find(qn("w", "rFonts"))
     if r_fonts is not None:
-        descriptor[0] = (
-            r_fonts.attrib.get(qn("w", "eastAsia"))
-            or r_fonts.attrib.get(qn("w", "ascii"))
-            or r_fonts.attrib.get(qn("w", "hAnsi"))
-            or descriptor[0]
-        )
+        latin = r_fonts.attrib.get(qn("w", "ascii")) or r_fonts.attrib.get(qn("w", "hAnsi"))
+        east_asia = r_fonts.attrib.get(qn("w", "eastAsia"))
+        if latin and east_asia and latin != east_asia:
+            descriptor[0] = f"{latin}, {east_asia}"
+        else:
+            descriptor[0] = east_asia or latin or descriptor[0]
     sz = properties.find(qn("w", "sz"))
     if sz is not None:
         descriptor[1] = max(int(sz.attrib.get(qn("w", "val"), str(descriptor[1] * 2))) // 2, 1)
@@ -1163,7 +1198,7 @@ def _parse_styles(archive: zipfile.ZipFile) -> list[dict]:
         based_on_node = node.find(qn("w", "basedOn"))
         alignment = "left"
         outline_level = None
-        line_spacing = 1.0
+        line_spacing = DEFAULT_LINE_SPACING
         space_before = 0
         space_after = 0
         style_numbering = None
@@ -1294,7 +1329,7 @@ def _parse_paragraph_node(
             }.get(jc.attrib.get(qn("w", "val"), "left"), "align_left")
 
     style_info = styles_by_id.get(style_id, styles_by_id.get("Normal"))
-    line_spacing = 1.0
+    line_spacing = DEFAULT_LINE_SPACING
     space_before = 0
     space_after = 0
     numbering = None

@@ -87,6 +87,8 @@ const MAX_NUMBERING_LEVEL = 8;
 const MAX_EDITOR_HISTORY = 200;
 const NUMBERING_LEVEL_INDENT_PX = 24;
 const MIN_NUMBERING_PREFIX_PX = 18;
+const DEFAULT_FONT_FAMILY = '"Times New Roman", SimSun';
+const DEFAULT_LINE_SPACING = 1.5;
 const DEFAULT_SHORTCUTS = {
   bold: "Ctrl+B",
   italic: "Ctrl+I",
@@ -629,25 +631,37 @@ function closeShortcutModal() {
 function defaultStyles() {
   return {
     paragraph: [
-      { id: "Normal", name: "Normal", descriptor: ["Calibri", 12, false, false, false], alignment: "left", outline_level: null, is_default: true, line_spacing: 1, space_before: 0, space_after: 0 },
-      { id: "Heading1", name: "Heading 1", descriptor: ["Calibri", 20, true, false, false], alignment: "left", outline_level: 0, is_default: false, line_spacing: 1, space_before: 0, space_after: 0 },
-      { id: "Heading2", name: "Heading 2", descriptor: ["Calibri", 16, true, false, false], alignment: "left", outline_level: 1, is_default: false, line_spacing: 1, space_before: 0, space_after: 0 },
-      { id: "Heading3", name: "Heading 3", descriptor: ["Calibri", 14, true, false, false], alignment: "left", outline_level: 2, is_default: false, line_spacing: 1, space_before: 0, space_after: 0 },
+      { id: "Normal", name: "Normal", descriptor: [DEFAULT_FONT_FAMILY, 12, false, false, false], alignment: "left", outline_level: null, is_default: true, line_spacing: DEFAULT_LINE_SPACING, space_before: 0, space_after: 0 },
+      { id: "Heading1", name: "Heading 1", descriptor: [DEFAULT_FONT_FAMILY, 20, true, false, false], alignment: "left", outline_level: 0, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: 0, space_after: 0 },
+      { id: "Heading2", name: "Heading 2", descriptor: [DEFAULT_FONT_FAMILY, 16, true, false, false], alignment: "left", outline_level: 1, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: 0, space_after: 0 },
+      { id: "Heading3", name: "Heading 3", descriptor: [DEFAULT_FONT_FAMILY, 14, true, false, false], alignment: "left", outline_level: 2, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: 0, space_after: 0 },
     ],
   };
 }
 
 function cloneDescriptor(descriptor) {
-  const fallback = ["Calibri", 12, false, false, false, ""];
+  const fallback = [DEFAULT_FONT_FAMILY, 12, false, false, false, ""];
   const values = Array.isArray(descriptor) ? descriptor.slice(0, 6) : fallback.slice();
   while (values.length < 6) values.push(fallback[values.length]);
-  values[0] = String(values[0] || "Calibri");
+  values[0] = String(values[0] || DEFAULT_FONT_FAMILY);
   values[1] = Math.max(Number(values[1]) || 12, 1);
   values[2] = Boolean(values[2]);
   values[3] = Boolean(values[3]);
   values[4] = Boolean(values[4]);
   values[5] = String(values[5] || "");
   return values;
+}
+
+function fontFamilyForControl(family) {
+  const raw = String(family || DEFAULT_FONT_FAMILY);
+  if (raw.includes("Times New Roman") && raw.includes("SimSun")) {
+    return "Times New Roman";
+  }
+  return raw.split(",")[0].replace(/["']/g, "").trim() || "Times New Roman";
+}
+
+function fontFamilyForDocument(family) {
+  return fontFamilyForControl(family) === "Times New Roman" ? DEFAULT_FONT_FAMILY : family;
 }
 
 function normalizeStyleNumbering(numbering) {
@@ -677,7 +691,7 @@ function normalizeStyles(styles) {
       outline_level: [0, 1, 2].includes(style.outline_level) ? style.outline_level : null,
       is_default: Boolean(style.is_default || id === "Normal"),
       based_on: style.based_on || null,
-      line_spacing: Math.max(Number(style.line_spacing) || 1, 1),
+      line_spacing: Math.max(Number(style.line_spacing) || DEFAULT_LINE_SPACING, 1),
       space_before: Math.max(Number(style.space_before) || 0, 0),
       space_after: Math.max(Number(style.space_after ?? 0) || 0, 0),
       numbering: normalizeStyleNumbering(style.numbering),
@@ -846,7 +860,7 @@ function applyFormatPainterToBlock(block) {
 function paragraphMetricsFromElement(element) {
   const style = window.getComputedStyle(element);
   return {
-    lineSpacing: Math.max(parseFloat(style.lineHeight) / parseFloat(style.fontSize || "16"), 1) || 1,
+    lineSpacing: Math.max(parseFloat(style.lineHeight) / parseFloat(style.fontSize || "16"), 1) || DEFAULT_LINE_SPACING,
     spaceBefore: Math.max(parseFloat(element.dataset.spaceBefore || "0"), 0),
     spaceAfter: Math.max(parseFloat(element.dataset.spaceAfter || String(parseFloat(style.marginBottom || "0"))), 0),
   };
@@ -1364,7 +1378,7 @@ function fontSpecFromComputedStyle(style) {
   const fontVariant = style.fontVariant || "normal";
   const fontWeight = style.fontWeight || "400";
   const fontSize = style.fontSize || "16px";
-  const fontFamily = style.fontFamily || "Calibri, sans-serif";
+  const fontFamily = style.fontFamily || `${DEFAULT_FONT_FAMILY}, serif`;
   return `${fontStyle} ${fontVariant} ${fontWeight} ${fontSize} ${fontFamily}`;
 }
 
@@ -1570,7 +1584,10 @@ function applyNumberFormatToSelection() {
 }
 
 function descriptorFromStyle(style) {
-  const family = (style.fontFamily || "Calibri").split(",")[0].replace(/["']/g, "").trim() || "Calibri";
+  const rawFamily = style.fontFamily || DEFAULT_FONT_FAMILY;
+  const family = rawFamily.includes("Times New Roman") && rawFamily.includes("SimSun")
+    ? DEFAULT_FONT_FAMILY
+    : rawFamily.split(",")[0].replace(/["']/g, "").trim() || DEFAULT_FONT_FAMILY;
   const size = Math.max(Math.round(parseFloat(style.fontSize || "16") * 0.75), 1);
   const weight = parseInt(style.fontWeight || "400", 10);
   return [
@@ -1635,7 +1652,7 @@ function summarizeCurrentSelectionForDebug() {
 function descriptorCssTokens(descriptor) {
   const [family, size, bold, italic, underline, background] = cloneDescriptor(descriptor);
   return {
-    family: String(family || "Calibri").split(",")[0].replace(/["']/g, "").trim().toLowerCase(),
+    family: String(family || DEFAULT_FONT_FAMILY).split(",")[0].replace(/["']/g, "").trim().toLowerCase(),
     sizePx: Math.max(Number(size) / 0.75, 1),
     weight: bold ? 700 : 400,
     style: italic ? "italic" : "normal",
@@ -1813,7 +1830,7 @@ function applyStyleVisuals(element, style) {
   target.style.textDecoration = style.descriptor[4] ? "underline" : "none";
   target.style.textAlign = style.alignment || "left";
   applyParagraphMetrics(target, {
-    lineSpacing: style.line_spacing || 1,
+    lineSpacing: style.line_spacing || DEFAULT_LINE_SPACING,
     spaceBefore: style.space_before || 0,
     spaceAfter: style.space_after ?? 0,
   });
@@ -1921,7 +1938,7 @@ function syncTextFormatControls() {
     return;
   }
   const descriptor = selectionDescriptorOrBlockDescriptor(block);
-  const family = String(descriptor[0] || "Calibri").trim() || "Calibri";
+  const family = fontFamilyForControl(descriptor[0]);
   const size = Math.max(Number(descriptor[1]) || 12, 1);
   ensureSelectHasOption(fontFamily, family);
   if (fontFamily) {
@@ -2274,7 +2291,7 @@ function paragraphsFromContainer(container) {
       style_id: styleId,
       style_name: style ? style.name : styleId,
       alignment: blockAlignment(element),
-      line_spacing: Math.max(parseFloat(element.style.lineHeight || window.getComputedStyle(element).lineHeight) / parseFloat(window.getComputedStyle(element).fontSize || "16"), 1) || 1,
+      line_spacing: Math.max(parseFloat(element.style.lineHeight || window.getComputedStyle(element).lineHeight) / parseFloat(window.getComputedStyle(element).fontSize || "16"), 1) || DEFAULT_LINE_SPACING,
       space_before: Math.max(Number(element.dataset.spaceBefore || 0), 0),
       space_after: Math.max(Number(element.dataset.spaceAfter || parseFloat(window.getComputedStyle(element).marginBottom || "0")), 0),
       runs: mergeRuns(runs),
@@ -2364,7 +2381,7 @@ function renderParagraphBlock(block, parent) {
   applyStyleVisuals(el, getStyleById(el.dataset.styleId));
   el.style.textAlign = { align_left: "left", align_center: "center", align_right: "right", align_justify: "justify" }[block.alignment] || el.style.textAlign;
   applyParagraphMetrics(el, {
-    lineSpacing: block.line_spacing || 1,
+    lineSpacing: block.line_spacing || DEFAULT_LINE_SPACING,
     spaceBefore: block.space_before || 0,
     spaceAfter: block.space_after ?? 0,
   });
@@ -2644,7 +2661,7 @@ function saveCurrentStyle() {
     outline_level: block.tagName === "H1" ? 0 : block.tagName === "H2" ? 1 : block.tagName === "H3" ? 2 : null,
     is_default: false,
     based_on: "Normal",
-    line_spacing: Number(lineSpacingSelect.value) || 1,
+    line_spacing: Number(lineSpacingSelect.value) || DEFAULT_LINE_SPACING,
     space_before: Number(spaceBeforeInput.value) || 0,
     space_after: Number(spaceAfterInput.value) || 0,
   };
@@ -2674,7 +2691,7 @@ function updateStyleFromSelection() {
   style.descriptor = selectionDescriptorOrBlockDescriptor(block);
   style.alignment = { align_left: "left", align_center: "center", align_right: "right", align_justify: "justify" }[blockAlignment(block)] || "left";
   style.outline_level = block.tagName === "H1" ? 0 : block.tagName === "H2" ? 1 : block.tagName === "H3" ? 2 : null;
-  style.line_spacing = Number(metrics.lineSpacing) || style.line_spacing || 1;
+  style.line_spacing = Number(metrics.lineSpacing) || style.line_spacing || DEFAULT_LINE_SPACING;
   style.space_before = Number(metrics.spaceBefore) || 0;
   style.space_after = Number(metrics.spaceAfter) || 0;
 
@@ -2894,6 +2911,7 @@ Array.from(document.querySelectorAll(".toolbar-wrap button")).forEach((button) =
 
 fontFamily.addEventListener("change", () => {
   debugLog("fontFamily:change", summarizeCurrentSelectionForDebug());
+  const selectedFamily = fontFamilyForDocument(fontFamily.value);
   const selection = window.getSelection();
   const collapsed = !selection || selection.rangeCount === 0 || selection.getRangeAt(0).collapsed;
   if (collapsed) {
@@ -2904,7 +2922,7 @@ fontFamily.addEventListener("change", () => {
       return;
     }
     recordUndoSnapshot();
-    blocks.forEach((block) => applyFontFamilyToBlock(block, fontFamily.value));
+    blocks.forEach((block) => applyFontFamilyToBlock(block, selectedFamily));
     captureEditorSelection();
     syncSelectionUi();
     markDirty();
@@ -2912,11 +2930,11 @@ fontFamily.addEventListener("change", () => {
     debugLog("fontFamily:block-apply", {
       ...summarizeCurrentSelectionForDebug(),
       appliedToBlocks: blocks.length,
-      family: fontFamily.value,
+      family: selectedFamily,
     });
     return;
   }
-  exec("fontName", fontFamily.value);
+  exec("fontName", selectedFamily);
 });
 
 fontSize.addEventListener("change", () => {
@@ -3003,7 +3021,7 @@ numberLevelUpBtn?.addEventListener("click", () => updateNumberingLevel(1));
 numberLevelDownBtn?.addEventListener("click", () => updateNumberingLevel(-1));
 numberFormatSelect?.addEventListener("change", applyNumberFormatToSelection);
 resetParagraphSpacingBtn.addEventListener("click", () => {
-  lineSpacingSelect.value = "1";
+  lineSpacingSelect.value = String(DEFAULT_LINE_SPACING);
   spaceBeforeInput.value = "0";
   spaceAfterInput.value = "0";
   applyCurrentParagraphMetrics();

@@ -3,8 +3,11 @@ from __future__ import annotations
 import os
 import sys
 import atexit
+import ctypes
+import json
 import threading
 import webbrowser
+from ctypes import wintypes
 from pathlib import Path
 
 import pystray
@@ -13,9 +16,68 @@ from PIL import Image, ImageDraw, ImageFont
 import server
 
 
+ERROR_ALREADY_EXISTS = 183
+MUTEX_NAME = "Local\\MiniDocxTraySingleInstance"
+STATE_FILE_NAME = "mini_docx_tray_state.json"
+
+
 def resource_path(relative: str) -> Path:
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
     return base / relative
+
+
+def runtime_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def state_path() -> Path:
+    return runtime_root() / STATE_FILE_NAME
+
+
+def acquire_single_instance_mutex():
+    if os.name != "nt":
+        return None
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.CreateMutexW(None, False, MUTEX_NAME)
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+        kernel32.CloseHandle(handle)
+        return None
+    return handle
+
+
+def release_single_instance_mutex(handle) -> None:
+    if os.name != "nt" or not handle:
+        return
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.ReleaseMutex.argtypes = [wintypes.HANDLE]
+    kernel32.ReleaseMutex.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.ReleaseMutex(handle)
+    kernel32.CloseHandle(handle)
+
+
+def open_existing_instance() -> None:
+    url = f"http://{server.HOST}:{server.PORT}"
+    try:
+        with state_path().open("r", encoding="utf-8") as fh:
+            state = json.load(fh)
+        port = int(state.get("port") or server.PORT)
+        url = str(state.get("url") or f"http://{server.HOST}:{port}")
+    except Exception:
+        pass
+    try:
+        webbrowser.open(url)
+    except Exception:
+        pass
 
 
 def load_icon_image() -> Image.Image:
@@ -51,6 +113,24 @@ class TrayApp:
             self._build_menu(),
         )
         atexit.register(self.stop_server)
+
+    def write_state(self) -> None:
+        payload = {
+            "pid": os.getpid(),
+            "host": server.HOST,
+            "port": self.port,
+            "url": f"http://{server.HOST}:{self.port}",
+        }
+        try:
+            state_path().write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+
+    def clear_state(self) -> None:
+        try:
+            state_path().unlink(missing_ok=True)
+        except Exception:
+            pass
 
     def _build_menu(self) -> pystray.Menu:
         return pystray.Menu(
@@ -107,6 +187,7 @@ class TrayApp:
         self.port = actual_port
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        self.write_state()
         self.update_tooltip()
         if self.requested_port != self.port and self.requested_port != 0:
             self.icon.title = f"端口被占用，已切换至 {self.port}"
@@ -121,6 +202,7 @@ class TrayApp:
         if self.thread:
             self.thread.join(timeout=2)
         self.thread = None
+        self.clear_state()
         self.update_tooltip()
 
     def start_action(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
@@ -149,4 +231,11 @@ class TrayApp:
 
 
 if __name__ == "__main__":
-    TrayApp().run()
+    mutex_handle = acquire_single_instance_mutex()
+    if mutex_handle is None:
+        open_existing_instance()
+        sys.exit(0)
+    try:
+        TrayApp().run()
+    finally:
+        release_single_instance_mutex(mutex_handle)
