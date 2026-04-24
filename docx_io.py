@@ -33,6 +33,7 @@ DEFAULT_LATIN_FONT = "Times New Roman"
 DEFAULT_EAST_ASIA_FONT = "SimSun"
 DEFAULT_FONT_FAMILY = f"{DEFAULT_LATIN_FONT}, {DEFAULT_EAST_ASIA_FONT}"
 DEFAULT_LINE_SPACING = 1.5
+DEFAULT_PARAGRAPH_SPACING = 1
 ALLOWED_STYLE_ORDER = ("Normal", "Heading1", "Heading2", "Heading3")
 ALLOWED_STYLE_IDS = set(ALLOWED_STYLE_ORDER)
 STYLE_ALIAS_MAP = {
@@ -464,8 +465,8 @@ def _make_style(
     is_default: bool = False,
     based_on: str | None = None,
     line_spacing: float = DEFAULT_LINE_SPACING,
-    space_before: int = 0,
-    space_after: int = 0,
+    space_before: int = DEFAULT_PARAGRAPH_SPACING,
+    space_after: int = DEFAULT_PARAGRAPH_SPACING,
     numbering: dict | None = None,
 ) -> dict:
     return {
@@ -478,8 +479,8 @@ def _make_style(
         "is_default": bool(is_default),
         "based_on": based_on or None,
         "line_spacing": _normalize_line_spacing(line_spacing, DEFAULT_LINE_SPACING),
-        "space_before": _normalize_spacing(space_before, 0),
-        "space_after": _normalize_spacing(space_after, 0),
+        "space_before": _normalize_spacing(space_before, DEFAULT_PARAGRAPH_SPACING),
+        "space_after": _normalize_spacing(space_after, DEFAULT_PARAGRAPH_SPACING),
         "numbering": _normalize_style_numbering(numbering),
     }
 
@@ -537,8 +538,8 @@ def _normalize_styles(payload: dict | None) -> list[dict]:
                 bool(base_style.get("is_default")),
                 base_style.get("based_on"),
                 style.get("line_spacing", base_style.get("line_spacing", DEFAULT_LINE_SPACING)),
-                style.get("space_before", base_style.get("space_before", 0)),
-                style.get("space_after", base_style.get("space_after", 0)),
+                style.get("space_before", base_style.get("space_before", DEFAULT_PARAGRAPH_SPACING)),
+                style.get("space_after", base_style.get("space_after", DEFAULT_PARAGRAPH_SPACING)),
                 style.get("numbering"),
             )
         )
@@ -561,8 +562,8 @@ def _clear_imported_paragraph_format(block: dict) -> dict:
     block["style_name"] = "Normal"
     block["alignment"] = "align_left"
     block["line_spacing"] = DEFAULT_LINE_SPACING
-    block["space_before"] = 0
-    block["space_after"] = 0
+    block["space_before"] = DEFAULT_PARAGRAPH_SPACING
+    block["space_after"] = DEFAULT_PARAGRAPH_SPACING
     block.pop("numbering", None)
     default_descriptor = _default_descriptor()
     for run in block.get("runs") or []:
@@ -697,8 +698,8 @@ def _styles_xml(styles_payload: dict | None = None) -> bytes:
             p_pr,
             qn("w", "spacing"),
             {
-                qn("w", "before"): str(_normalize_spacing(style.get("space_before"), 0) * 20),
-                qn("w", "after"): str(_normalize_spacing(style.get("space_after"), 0) * 20),
+                qn("w", "before"): str(_normalize_spacing(style.get("space_before"), DEFAULT_PARAGRAPH_SPACING) * 20),
+                qn("w", "after"): str(_normalize_spacing(style.get("space_after"), DEFAULT_PARAGRAPH_SPACING) * 20),
                 qn("w", "line"): str(int(round(_normalize_line_spacing(style.get("line_spacing"), DEFAULT_LINE_SPACING) * 240))),
                 qn("w", "lineRule"): "auto",
             },
@@ -775,8 +776,8 @@ def _paragraph_node(block: dict, styles: dict[str, dict], list_id_to_num_id: dic
         p_pr,
         qn("w", "spacing"),
         {
-            qn("w", "before"): str(_normalize_spacing(block.get("space_before"), int(style_spacing.get("space_before", 0))) * 20),
-            qn("w", "after"): str(_normalize_spacing(block.get("space_after"), int(style_spacing.get("space_after", 0))) * 20),
+            qn("w", "before"): str(_normalize_spacing(block.get("space_before"), int(style_spacing.get("space_before", DEFAULT_PARAGRAPH_SPACING))) * 20),
+            qn("w", "after"): str(_normalize_spacing(block.get("space_after"), int(style_spacing.get("space_after", DEFAULT_PARAGRAPH_SPACING))) * 20),
             qn("w", "line"): str(int(round(_normalize_line_spacing(block.get("line_spacing"), float(style_spacing.get("line_spacing", DEFAULT_LINE_SPACING))) * 240))),
             qn("w", "lineRule"): "auto",
         },
@@ -927,8 +928,8 @@ def _ensure_docx_paragraph_style(doc, style_info: dict, style_name_by_id: dict[s
     _set_docx_rfonts(style.element.get_or_add_rPr(), descriptor[0])
     style.paragraph_format.alignment = _ALIGNMENT_TO_DOCX.get(str(style_info.get("alignment") or "left"), WD_ALIGN_PARAGRAPH.LEFT)
     style.paragraph_format.line_spacing = _normalize_line_spacing(style_info.get("line_spacing"), DEFAULT_LINE_SPACING)
-    style.paragraph_format.space_before = Pt(_normalize_spacing(style_info.get("space_before"), 0))
-    style.paragraph_format.space_after = Pt(_normalize_spacing(style_info.get("space_after"), 0))
+    style.paragraph_format.space_before = Pt(_normalize_spacing(style_info.get("space_before"), DEFAULT_PARAGRAPH_SPACING))
+    style.paragraph_format.space_after = Pt(_normalize_spacing(style_info.get("space_after"), DEFAULT_PARAGRAPH_SPACING))
     outline_level = style_info.get("outline_level")
     p_pr = style.element.get_or_add_pPr()
     outline_node = p_pr.find(docx_qn("w:outlineLvl"))
@@ -1010,10 +1011,10 @@ def _apply_docx_paragraph_format(paragraph, block: dict, style_info: dict | None
         alignment = str((style_info or {}).get("alignment") or "left")
     paragraph.alignment = _ALIGNMENT_TO_DOCX.get(alignment, WD_ALIGN_PARAGRAPH.LEFT)
     paragraph.paragraph_format.space_before = Pt(
-        _normalize_spacing(block.get("space_before"), int((style_info or {}).get("space_before", 0)))
+        _normalize_spacing(block.get("space_before"), int((style_info or {}).get("space_before", DEFAULT_PARAGRAPH_SPACING)))
     )
     paragraph.paragraph_format.space_after = Pt(
-        _normalize_spacing(block.get("space_after"), int((style_info or {}).get("space_after", 0)))
+        _normalize_spacing(block.get("space_after"), int((style_info or {}).get("space_after", DEFAULT_PARAGRAPH_SPACING)))
     )
     paragraph.paragraph_format.line_spacing = _normalize_line_spacing(
         block.get("line_spacing"), float((style_info or {}).get("line_spacing", DEFAULT_LINE_SPACING))
@@ -1263,8 +1264,8 @@ def _parse_styles(archive: zipfile.ZipFile) -> list[dict]:
         r_pr = node.find(qn("w", "rPr"))
         alignment = base_style.get("alignment", "left")
         line_spacing = base_style.get("line_spacing", DEFAULT_LINE_SPACING)
-        space_before = base_style.get("space_before", 0)
-        space_after = base_style.get("space_after", 0)
+        space_before = base_style.get("space_before", DEFAULT_PARAGRAPH_SPACING)
+        space_after = base_style.get("space_after", DEFAULT_PARAGRAPH_SPACING)
         style_numbering = None
 
         if p_pr is not None:
@@ -1420,8 +1421,8 @@ def _parse_paragraph_node(
 
     style_info = styles_by_id.get(style_id, styles_by_id.get("Normal"))
     line_spacing = DEFAULT_LINE_SPACING
-    space_before = 0
-    space_after = 0
+    space_before = DEFAULT_PARAGRAPH_SPACING
+    space_after = DEFAULT_PARAGRAPH_SPACING
     numbering = None
     if p_pr is None or p_pr.find(qn("w", "jc")) is None:
         alignment = {

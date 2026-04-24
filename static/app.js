@@ -91,6 +91,7 @@ const DEFAULT_FONT_FAMILY = '"Times New Roman", SimSun';
 const DEFAULT_LINE_SPACING = 1.5;
 const OPENED_DOCUMENT_WIDTH_MM = 350;
 const DEFAULT_DOCUMENT_HEIGHT_MM = 297;
+const DEFAULT_PARAGRAPH_SPACING = 1;
 const ALLOWED_STYLE_ORDER = ["Normal", "Heading1", "Heading2", "Heading3"];
 const DEFAULT_SHORTCUTS = {
   bold: "Ctrl+B",
@@ -634,10 +635,10 @@ function closeShortcutModal() {
 function defaultStyles() {
   return {
     paragraph: [
-      { id: "Normal", name: "Normal", descriptor: [DEFAULT_FONT_FAMILY, 12, false, false, false], alignment: "left", outline_level: null, is_default: true, line_spacing: DEFAULT_LINE_SPACING, space_before: 0, space_after: 0 },
-      { id: "Heading1", name: "Heading 1", descriptor: [DEFAULT_FONT_FAMILY, 20, true, false, false], alignment: "left", outline_level: 0, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: 0, space_after: 0 },
-      { id: "Heading2", name: "Heading 2", descriptor: [DEFAULT_FONT_FAMILY, 16, true, false, false], alignment: "left", outline_level: 1, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: 0, space_after: 0 },
-      { id: "Heading3", name: "Heading 3", descriptor: [DEFAULT_FONT_FAMILY, 14, true, false, false], alignment: "left", outline_level: 2, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: 0, space_after: 0 },
+      { id: "Normal", name: "Normal", descriptor: [DEFAULT_FONT_FAMILY, 12, false, false, false], alignment: "left", outline_level: null, is_default: true, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "Heading1", name: "Heading 1", descriptor: [DEFAULT_FONT_FAMILY, 20, true, false, false], alignment: "left", outline_level: 0, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "Heading2", name: "Heading 2", descriptor: [DEFAULT_FONT_FAMILY, 16, true, false, false], alignment: "left", outline_level: 1, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "Heading3", name: "Heading 3", descriptor: [DEFAULT_FONT_FAMILY, 14, true, false, false], alignment: "left", outline_level: 2, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
     ],
   };
 }
@@ -692,8 +693,8 @@ function normalizeStyles(styles) {
       descriptor: cloneDescriptor(style.descriptor || baseStyle.descriptor),
       alignment: ["left", "center", "right", "justify"].includes(style.alignment) ? style.alignment : baseStyle.alignment,
       line_spacing: Math.max(Number(style.line_spacing ?? baseStyle.line_spacing) || DEFAULT_LINE_SPACING, 1),
-      space_before: Math.max(Number(style.space_before ?? baseStyle.space_before) || 0, 0),
-      space_after: Math.max(Number(style.space_after ?? baseStyle.space_after) || 0, 0),
+      space_before: Math.max(Number(style.space_before ?? baseStyle.space_before) || DEFAULT_PARAGRAPH_SPACING, 0),
+      space_after: Math.max(Number(style.space_after ?? baseStyle.space_after) || DEFAULT_PARAGRAPH_SPACING, 0),
       numbering: normalizeStyleNumbering(style.numbering),
     };
   });
@@ -1756,15 +1757,19 @@ function applyFontSizeToBlock(block, pointSize) {
 
 function syncStyledRunsForStyleUpdate(block, previousDescriptor, nextDescriptor) {
   if (!block) return;
-  const runs = Array.from(block.querySelectorAll("span, font")).filter((node) => {
-    if (node.tagName === "FONT") return true;
-    const styleAttr = node.getAttribute("style") || "";
-    return /font|text-decoration|background/i.test(styleAttr);
-  });
+  const runs = inlineStyledRuns(block);
+  if (!runs.length) {
+    Array.from(block.childNodes).forEach((node) => {
+      if (node.nodeType !== Node.TEXT_NODE || !node.textContent) return;
+      const span = document.createElement("span");
+      span.textContent = node.textContent;
+      applyDescriptorToRun(span, nextDescriptor);
+      node.replaceWith(span);
+    });
+    return;
+  }
   runs.forEach((run) => {
-    if (runLooksLikeDescriptor(run, previousDescriptor)) {
-      applyDescriptorToRun(run, nextDescriptor);
-    }
+    applyDescriptorToRun(run, nextDescriptor);
   });
 }
 
@@ -1851,7 +1856,7 @@ function applyStyleVisuals(element, style) {
   target.style.textAlign = style.alignment || "left";
   applyParagraphMetrics(target, {
     lineSpacing: style.line_spacing || DEFAULT_LINE_SPACING,
-    spaceBefore: style.space_before || 0,
+    spaceBefore: style.space_before ?? DEFAULT_PARAGRAPH_SPACING,
     spaceAfter: style.space_after ?? 0,
   });
   return target;
@@ -2402,7 +2407,7 @@ function renderParagraphBlock(block, parent) {
   el.style.textAlign = { align_left: "left", align_center: "center", align_right: "right", align_justify: "justify" }[block.alignment] || el.style.textAlign;
   applyParagraphMetrics(el, {
     lineSpacing: block.line_spacing || DEFAULT_LINE_SPACING,
-    spaceBefore: block.space_before || 0,
+    spaceBefore: block.space_before ?? DEFAULT_PARAGRAPH_SPACING,
     spaceAfter: block.space_after ?? 0,
   });
   setNumberingData(el, block.numbering);
@@ -2686,8 +2691,8 @@ function updateStyleFromSelection() {
   style.descriptor = nextDescriptor;
   style.alignment = { align_left: "left", align_center: "center", align_right: "right", align_justify: "justify" }[blockAlignment(block)] || "left";
   style.line_spacing = Number(metrics.lineSpacing) || style.line_spacing || DEFAULT_LINE_SPACING;
-  style.space_before = Number(metrics.spaceBefore) || 0;
-  style.space_after = Number(metrics.spaceAfter) || 0;
+  style.space_before = Number(metrics.spaceBefore) || DEFAULT_PARAGRAPH_SPACING;
+  style.space_after = Number(metrics.spaceAfter) || DEFAULT_PARAGRAPH_SPACING;
 
   const targets = Array.from(editor.querySelectorAll(`[data-style-id="${style.id}"]`));
   targets.forEach((target) => {
