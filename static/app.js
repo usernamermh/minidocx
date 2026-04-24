@@ -675,29 +675,7 @@ function normalizeStyleNumbering(numbering) {
 }
 
 function normalizeStyles(styles) {
-  const base = defaultStyles().paragraph;
-  const incoming = styles && Array.isArray(styles.paragraph) ? styles.paragraph : [];
-  const merged = [];
-  const seen = new Set();
-  [...base, ...incoming].forEach((style) => {
-    const id = String(style.id || "").trim();
-    if (!id || seen.has(id)) return;
-    seen.add(id);
-    merged.push({
-      id,
-      name: String(style.name || id),
-      descriptor: cloneDescriptor(style.descriptor),
-      alignment: ["left", "center", "right", "justify"].includes(style.alignment) ? style.alignment : "left",
-      outline_level: [0, 1, 2].includes(style.outline_level) ? style.outline_level : null,
-      is_default: Boolean(style.is_default || id === "Normal"),
-      based_on: style.based_on || null,
-      line_spacing: Math.max(Number(style.line_spacing) || DEFAULT_LINE_SPACING, 1),
-      space_before: Math.max(Number(style.space_before) || 0, 0),
-      space_after: Math.max(Number(style.space_after ?? 0) || 0, 0),
-      numbering: normalizeStyleNumbering(style.numbering),
-    });
-  });
-  return { paragraph: merged };
+  return defaultStyles();
 }
 
 function styleMap() {
@@ -2642,35 +2620,7 @@ function isTextInputOutsideEditor(target) {
 }
 
 function saveCurrentStyle() {
-  restoreEditorSelection();
-  const block = currentBlockElement();
-  if (!block) {
-    setStatus("请先把光标放在段落中，再保存样式。");
-    return;
-  }
-  const name = (window.prompt("请输入样式名称", block.textContent.trim().slice(0, 20) || "我的样式") || "").trim();
-  if (!name) {
-    setStatus("已取消保存样式");
-    return;
-  }
-  const style = {
-    id: uniqueStyleId(name),
-    name,
-    descriptor: descriptorFromStyle(window.getComputedStyle(block)),
-    alignment: { align_left: "left", align_center: "center", align_right: "right", align_justify: "justify" }[blockAlignment(block)] || "left",
-    outline_level: block.tagName === "H1" ? 0 : block.tagName === "H2" ? 1 : block.tagName === "H3" ? 2 : null,
-    is_default: false,
-    based_on: "Normal",
-    line_spacing: Number(lineSpacingSelect.value) || DEFAULT_LINE_SPACING,
-    space_before: Number(spaceBeforeInput.value) || 0,
-    space_after: Number(spaceAfterInput.value) || 0,
-  };
-  currentStyles = { paragraph: [...currentStyles.paragraph, style] };
-  stylesDirty = true;
-  populateStyleSelect(style.id);
-  applyParagraphStyle(style.id);
-  markDirty();
-  setStatus(`已保存并应用样式：${style.name}`);
+  setStatus("当前仅保留 H1、H2、H3、Normal 四种样式，不能新增样式。");
 }
 
 function updateStyleFromSelection() {
@@ -2690,7 +2640,6 @@ function updateStyleFromSelection() {
   const metrics = paragraphMetricsFromElement(block);
   style.descriptor = selectionDescriptorOrBlockDescriptor(block);
   style.alignment = { align_left: "left", align_center: "center", align_right: "right", align_justify: "justify" }[blockAlignment(block)] || "left";
-  style.outline_level = block.tagName === "H1" ? 0 : block.tagName === "H2" ? 1 : block.tagName === "H3" ? 2 : null;
   style.line_spacing = Number(metrics.lineSpacing) || style.line_spacing || DEFAULT_LINE_SPACING;
   style.space_before = Number(metrics.spaceBefore) || 0;
   style.space_after = Number(metrics.spaceAfter) || 0;
@@ -3266,6 +3215,10 @@ currentStyles = normalizeStyles(defaultStyles());
 loadOutlineFilter();
 loadShortcuts();
 initLayoutToggles();
+if (saveStyleBtn) {
+  saveStyleBtn.disabled = true;
+  saveStyleBtn.title = "当前仅保留 H1、H2、H3、Normal 四种样式";
+}
 populateStyleSelect("Normal");
 renderShortcutInputs();
 setServerAddress();
