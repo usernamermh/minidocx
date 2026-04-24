@@ -89,6 +89,8 @@ const NUMBERING_LEVEL_INDENT_PX = 24;
 const MIN_NUMBERING_PREFIX_PX = 18;
 const DEFAULT_FONT_FAMILY = '"Times New Roman", SimSun';
 const DEFAULT_LINE_SPACING = 1.5;
+const OPENED_DOCUMENT_WIDTH_MM = 350;
+const DEFAULT_DOCUMENT_HEIGHT_MM = 297;
 const DEFAULT_SHORTCUTS = {
   bold: "Ctrl+B",
   italic: "Ctrl+I",
@@ -2396,14 +2398,10 @@ function loadDocument(documentData) {
   numberingDirty = false;
   currentStyles = normalizeStyles(documentData.styles);
   populateStyleSelect();
-  if (documentData.page && documentData.page.width_twips && documentData.page.height_twips) {
-    pageSize = {
-      widthTwips: Number(documentData.page.width_twips),
-      heightTwips: Number(documentData.page.height_twips),
-    };
-  } else {
-    pageSize = { widthTwips: 11906, heightTwips: 16838 };
-  }
+  pageSize = {
+    widthTwips: mmToTwips(OPENED_DOCUMENT_WIDTH_MM),
+    heightTwips: Number(documentData.page?.height_twips) || mmToTwips(DEFAULT_DOCUMENT_HEIGHT_MM),
+  };
   applyPageSizeToEditor();
   syncPageSizeControls();
   editor.innerHTML = "";
