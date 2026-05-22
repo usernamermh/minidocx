@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from docx_io import docx_bytes_to_document, document_to_docx_bytes
+from resource_tools import empty_all_working_sets, get_resource_stats
 
 
 ROOT = Path(__file__).resolve().parent
@@ -42,6 +43,9 @@ class EditorHandler(BaseHTTPRequestHandler):
         route = self.path.split("?", 1)[0]
         if route == "/":
             self._serve_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
+            return
+        if route == "/api/resource-stats":
+            self._resource_stats()
             return
         if route.startswith("/static/"):
             target = (STATIC_DIR / route.removeprefix("/static/")).resolve()
@@ -76,6 +80,9 @@ class EditorHandler(BaseHTTPRequestHandler):
             return
         if route == "/api/debug-log":
             self._debug_log(payload)
+            return
+        if route == "/api/clean-resources":
+            self._clean_resources()
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -121,6 +128,18 @@ class EditorHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": str(exc), "path": str(DEBUG_LOG_PATH)}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return
         self._send_json({"ok": True, "path": str(DEBUG_LOG_PATH)})
+
+    def _resource_stats(self) -> None:
+        try:
+            self._send_json(get_resource_stats())
+        except Exception as exc:
+            self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def _clean_resources(self) -> None:
+        try:
+            self._send_json(empty_all_working_sets())
+        except Exception as exc:
+            self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def _serve_file(self, path: Path, content_type: str) -> None:
         if not path.exists() or not path.is_file():

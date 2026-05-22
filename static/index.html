@@ -30,6 +30,24 @@
           </label>
         </div>
       </div>
+      <div class="panel resource-panel">
+        <div class="panel-head">
+          <h2>资源监控</h2>
+          <button id="cleanResourcesBtn" class="ghost-btn" type="button">清理</button>
+        </div>
+        <div class="resource-grid">
+          <div class="resource-metric">
+            <span class="resource-label">CPU</span>
+            <strong id="resourceCpuText">--%</strong>
+          </div>
+          <div class="resource-metric">
+            <span class="resource-label">内存</span>
+            <strong id="resourceMemoryText">--%</strong>
+          </div>
+        </div>
+        <p id="resourceMemoryDetail" class="resource-detail">-- / -- MB</p>
+        <p id="resourceStatusText" class="resource-status">每 2 秒自动更新</p>
+      </div>
       <div class="panel">
         <div class="panel-head">
           <h2>导航</h2>
