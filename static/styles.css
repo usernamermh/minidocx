@@ -124,6 +124,43 @@ body {
   text-align: center;
 }
 
+.resource-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.resource-metric {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.resource-label {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.resource-metric strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+}
+
+.resource-detail,
+.resource-status {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.resource-status {
+  min-height: 18px;
+}
+
 .panel-head {
   display: flex;
   align-items: center;

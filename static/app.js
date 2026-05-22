@@ -52,6 +52,11 @@ const fallbackFileBtn = document.querySelector(".fallback-file-btn");
 const deleteTableBtn = document.getElementById("deleteTableBtn");
 const sidebarToggleBtn = document.getElementById("sidebarToggleBtn");
 const toolbarToggleBtn = document.getElementById("toolbarToggleBtn");
+const resourceCpuText = document.getElementById("resourceCpuText");
+const resourceMemoryText = document.getElementById("resourceMemoryText");
+const resourceMemoryDetail = document.getElementById("resourceMemoryDetail");
+const resourceStatusText = document.getElementById("resourceStatusText");
+const cleanResourcesBtn = document.getElementById("cleanResourcesBtn");
 
 let currentStyles = { paragraph: [] };
 let customShortcuts = {};
@@ -93,6 +98,7 @@ const OPENED_DOCUMENT_WIDTH_MM = 350;
 const DEFAULT_DOCUMENT_HEIGHT_MM = 297;
 const DEFAULT_PARAGRAPH_SPACING = 1;
 const ALLOWED_STYLE_ORDER = ["Normal", "Heading1", "Heading2", "Heading3"];
+const RESOURCE_REFRESH_MS = 2000;
 const DEFAULT_SHORTCUTS = {
   bold: "Ctrl+B",
   italic: "Ctrl+I",
@@ -203,6 +209,71 @@ const SHORTCUT_ACTIONS = {
 
 function setStatus(text) {
   statusText.textContent = text;
+}
+
+function formatPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--%";
+  return `${number.toFixed(number % 1 === 0 ? 0 : 1)}%`;
+}
+
+function formatMemoryMb(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--";
+  if (number >= 1024) return `${(number / 1024).toFixed(1)} GB`;
+  return `${Math.round(number)} MB`;
+}
+
+function renderResourceStats(data) {
+  if (!data || !data.ok) return;
+  if (resourceCpuText) resourceCpuText.textContent = formatPercent(data.cpu_percent);
+  if (resourceMemoryText) resourceMemoryText.textContent = formatPercent(data.memory?.percent);
+  if (resourceMemoryDetail && data.memory) {
+    resourceMemoryDetail.textContent = `${formatMemoryMb(data.memory.used_mb)} / ${formatMemoryMb(data.memory.total_mb)}`;
+  }
+}
+
+async function refreshResourceStats() {
+  if (!resourceCpuText && !resourceMemoryText) return;
+  try {
+    const response = await fetch("/api/resource-stats", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "资源状态获取失败");
+    }
+    renderResourceStats(data);
+    if (resourceStatusText) resourceStatusText.textContent = "每 2 秒自动更新";
+  } catch (error) {
+    if (resourceStatusText) resourceStatusText.textContent = error.message || "资源状态获取失败";
+  }
+}
+
+async function cleanResources() {
+  if (!cleanResourcesBtn) return;
+  cleanResourcesBtn.disabled = true;
+  if (resourceStatusText) resourceStatusText.textContent = "正在清理资源...";
+  try {
+    const response = await fetch("/api/clean-resources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "资源清理失败");
+    }
+    renderResourceStats(data.stats);
+    const adminHint = data.is_admin ? "" : "，非管理员权限效果有限";
+    if (resourceStatusText) {
+      resourceStatusText.textContent = `已清理 ${data.cleaned_count} 个进程${adminHint}`;
+    }
+    setStatus(`已清理 ${data.cleaned_count} 个进程的工作集`);
+  } catch (error) {
+    if (resourceStatusText) resourceStatusText.textContent = error.message || "资源清理失败";
+    setStatus(error.message || "资源清理失败");
+  } finally {
+    cleanResourcesBtn.disabled = false;
+  }
 }
 
 function cloneDocxMeta(meta) {
@@ -3286,6 +3357,9 @@ initLayoutToggles();
 if (saveStyleBtn) {
   saveStyleBtn.title = "保存到当前 H1、H2、H3 或 Normal 样式";
 }
+cleanResourcesBtn?.addEventListener("click", cleanResources);
+refreshResourceStats();
+window.setInterval(refreshResourceStats, RESOURCE_REFRESH_MS);
 populateStyleSelect("Normal");
 renderShortcutInputs();
 setServerAddress();
