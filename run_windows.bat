@@ -5,6 +5,7 @@ cd /d "%~dp0"
 
 set "PY_CMD="
 set "USE_VENV=1"
+set "VENV_DIR=D:\codes\venvs\docs\.venv"
 
 where python >nul 2>nul
 if %errorlevel%==0 (
@@ -27,18 +28,19 @@ if not defined PY_CMD (
     exit /b 1
 )
 
-if not exist ".venv" (
+if not exist "%VENV_DIR%" (
     echo [INFO] Creating virtual environment...
-    %PY_CMD% -m venv .venv
+    if not exist "D:\codes\venvs\docs" mkdir "D:\codes\venvs\docs"
+    %PY_CMD% -m venv "%VENV_DIR%"
 )
 
-if not exist ".venv\Scripts\activate.bat" (
+if not exist "%VENV_DIR%\Scripts\activate.bat" (
     echo [WARN] Virtual environment creation failed. Falling back to current Python.
     set "USE_VENV=0"
 )
 
 if "%USE_VENV%"=="1" (
-    call .venv\Scripts\activate.bat
+    call "%VENV_DIR%\Scripts\activate.bat"
     set "RUN_PY=python"
 ) else (
     set "RUN_PY=%PY_CMD%"

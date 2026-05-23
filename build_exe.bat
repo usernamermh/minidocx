@@ -4,7 +4,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
 set "PY_CMD="
-set "VENV_DIR=.build-venv"
+set "VENV_DIR=D:\codes\venvs\docs\.build-venv"
 set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
 set "DIST_EXE=dist\MiniDocxTray.exe"
 
@@ -29,6 +29,7 @@ if not defined PY_CMD (
 
 if not exist "%VENV_DIR%\Scripts\activate.bat" (
     echo [INFO] Creating isolated build environment...
+    if not exist "D:\codes\venvs\docs" mkdir "D:\codes\venvs\docs"
     %PY_CMD% -m venv "%VENV_DIR%"
     if errorlevel 1 (
         echo [ERROR] Failed to create virtual environment.
