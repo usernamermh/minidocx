@@ -10,7 +10,7 @@ from datetime import datetime
 from urllib.parse import quote
 import webbrowser
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # 每个请求会在独立线程中处理
 from pathlib import Path
 
 from docx_io import docx_bytes_to_document, document_to_docx_bytes

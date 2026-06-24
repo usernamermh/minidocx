@@ -2003,6 +2003,11 @@ function selectedBlockElements() {
   return block ? [block] : [];
 }
 
+function allBlockElements() {
+  normalizeEditorStructure();
+  return Array.from(editor.querySelectorAll("p, h1, h2, h3"));
+}
+
 function syncParagraphStyleSelect() {
   const block = currentBlockElement();
   if (!block) {
@@ -2759,13 +2764,24 @@ function updateStyleFromSelection() {
   if (fontSize?.value) {
     nextDescriptor[1] = Math.max(Number(fontSize.value) || nextDescriptor[1], 1);
   }
+  const nextOutlineLevel = (() => {
+    if (style.id === "Normal") return null;
+    if (block.tagName === "H1") return 0;
+    if (block.tagName === "H2") return 1;
+    if (block.tagName === "H3") return 2;
+    return null;
+  })();
   style.descriptor = nextDescriptor;
+  style.outline_level = nextOutlineLevel;
   style.alignment = { align_left: "left", align_center: "center", align_right: "right", align_justify: "justify" }[blockAlignment(block)] || "left";
   style.line_spacing = Number(metrics.lineSpacing) || style.line_spacing || DEFAULT_LINE_SPACING;
   style.space_before = Number(metrics.spaceBefore) || DEFAULT_PARAGRAPH_SPACING;
   style.space_after = Number(metrics.spaceAfter) || DEFAULT_PARAGRAPH_SPACING;
 
-  const targets = Array.from(editor.querySelectorAll(`[data-style-id="${style.id}"]`));
+  const targets = allBlockElements().filter((target) => {
+    const targetStyleId = target.dataset.styleId || styleIdFromTag(target.tagName);
+    return targetStyleId === style.id;
+  });
   targets.forEach((target) => {
     applyStyleVisuals(target, style);
     syncStyledRunsForStyleUpdate(target, previousDescriptor, style.descriptor);
