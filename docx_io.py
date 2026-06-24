@@ -34,6 +34,8 @@ DEFAULT_EAST_ASIA_FONT = "SimSun"
 DEFAULT_FONT_FAMILY = f"{DEFAULT_LATIN_FONT}, {DEFAULT_EAST_ASIA_FONT}"
 DEFAULT_LINE_SPACING = 1.5
 DEFAULT_PARAGRAPH_SPACING = 1
+DEFAULT_PAGE_WIDTH_TWIPS = 11906
+DEFAULT_PAGE_HEIGHT_TWIPS = 16838
 ALLOWED_STYLE_ORDER = ("Normal", "Heading1", "Heading2", "Heading3")
 ALLOWED_STYLE_IDS = set(ALLOWED_STYLE_ORDER)
 STYLE_ALIAS_MAP = {
@@ -59,6 +61,17 @@ STYLE_ALIAS_MAP = {
 
 def qn(prefix: str, name: str) -> str:
     return f"{{{XML_NS[prefix]}}}{name}"
+
+
+def _normalize_page_twips(value: object, fallback: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    # Reject clearly invalid page sizes; tiny values can make WPS treat the DOCX as malformed.
+    if parsed < 2000 or parsed > 40000:
+        return fallback
+    return parsed
 
 
 def _normalize_num_fmt(value: object) -> str:
@@ -1149,8 +1162,8 @@ def document_to_docx_bytes(document: dict) -> bytes:
 
     section = doc.sections[0]
     page = document.get("page") or {}
-    section.page_width = int(page.get("width_twips") or 11906)
-    section.page_height = int(page.get("height_twips") or 16838)
+    section.page_width = _normalize_page_twips(page.get("width_twips"), DEFAULT_PAGE_WIDTH_TWIPS)
+    section.page_height = _normalize_page_twips(page.get("height_twips"), DEFAULT_PAGE_HEIGHT_TWIPS)
 
     body = doc.element.body
     for child in list(body):
@@ -1565,13 +1578,13 @@ def docx_bytes_to_document(data: bytes) -> dict:
                 result["_docx_meta"] = meta
             return result
 
-        page_size = {"width_twips": 11906, "height_twips": 16838}
+        page_size = {"width_twips": DEFAULT_PAGE_WIDTH_TWIPS, "height_twips": DEFAULT_PAGE_HEIGHT_TWIPS}
         sect_pr = body.find(qn("w", "sectPr"))
         if sect_pr is not None:
             pg_sz = sect_pr.find(qn("w", "pgSz"))
             if pg_sz is not None:
-                page_size["width_twips"] = int(pg_sz.attrib.get(qn("w", "w"), page_size["width_twips"]))
-                page_size["height_twips"] = int(pg_sz.attrib.get(qn("w", "h"), page_size["height_twips"]))
+                page_size["width_twips"] = _normalize_page_twips(pg_sz.attrib.get(qn("w", "w")), page_size["width_twips"])
+                page_size["height_twips"] = _normalize_page_twips(pg_sz.attrib.get(qn("w", "h")), page_size["height_twips"])
 
         for child in list(body):
             if child.tag == qn("w", "p"):
