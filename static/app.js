@@ -72,6 +72,7 @@ let pageSize = { widthTwips: 11906, heightTwips: 16838 };
 let docxMeta = null;
 let stylesDirty = false;
 let numberingDirty = false;
+let pageDirty = false;
 let cleanEditorHtml = "";
 let editorUndoStack = [];
 let editorRedoStack = [];
@@ -94,7 +95,7 @@ const NUMBERING_LEVEL_INDENT_PX = 24;
 const MIN_NUMBERING_PREFIX_PX = 18;
 const DEFAULT_FONT_FAMILY = '"Times New Roman", SimSun';
 const DEFAULT_LINE_SPACING = 1.5;
-const OPENED_DOCUMENT_WIDTH_MM = 350;
+const DEFAULT_DOCUMENT_WIDTH_MM = 210;
 const DEFAULT_DOCUMENT_HEIGHT_MM = 297;
 const DEFAULT_PARAGRAPH_SPACING = 1;
 const ALLOWED_STYLE_ORDER = ["Normal", "Heading1", "Heading2", "Heading3"];
@@ -1912,6 +1913,7 @@ function setPageSizeFromMm(widthMm, heightMm) {
   pageSize = { widthTwips: mmToTwips(width), heightTwips: mmToTwips(height) };
   applyPageSizeToEditor();
   syncPageSizeControls();
+  pageDirty = true;
   markDirty();
 }
 
@@ -2450,7 +2452,7 @@ function editorToDocument() {
     meta.styles_dirty = Boolean(stylesDirty);
     meta.numbering_dirty = Boolean(numberingDirty);
     meta.content_dirty = Boolean(isDirty);
-    meta.page_dirty = false;
+    meta.page_dirty = Boolean(pageDirty);
     payload._docx_meta = meta;
   }
   return payload;
@@ -2517,10 +2519,11 @@ function loadDocument(documentData) {
   docxMeta = cloneDocxMeta(documentData._docx_meta);
   stylesDirty = false;
   numberingDirty = false;
+  pageDirty = false;
   currentStyles = normalizeStyles(documentData.styles);
   populateStyleSelect();
   pageSize = {
-    widthTwips: mmToTwips(OPENED_DOCUMENT_WIDTH_MM),
+    widthTwips: Number(documentData.page?.width_twips) || mmToTwips(DEFAULT_DOCUMENT_WIDTH_MM),
     heightTwips: Number(documentData.page?.height_twips) || mmToTwips(DEFAULT_DOCUMENT_HEIGHT_MM),
   };
   applyPageSizeToEditor();

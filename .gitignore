@@ -18,3 +18,4 @@ _roundtrip_test.docx
 .DS_Store
 Thumbs.db
 *.log
+_inspect_docx/
