@@ -2172,6 +2172,40 @@ function slugify(text, fallback) {
   return slug || fallback;
 }
 
+function flashOutlineTarget(target) {
+  if (!target) return;
+  target.classList.remove("outline-target-flash");
+  void target.offsetWidth;
+  target.classList.add("outline-target-flash");
+  window.setTimeout(() => {
+    target.classList.remove("outline-target-flash");
+  }, 1600);
+}
+
+function scrollOutlineTargetIntoView(target) {
+  if (!target) return;
+  const stageRect = pageStage.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const currentTop = pageStage.scrollTop + (targetRect.top - stageRect.top);
+  const topPadding = 48;
+  const bottomPadding = 96;
+  const visibleTop = pageStage.scrollTop;
+  const visibleBottom = visibleTop + pageStage.clientHeight;
+  const targetTop = currentTop;
+  const targetBottom = currentTop + Math.max(targetRect.height, 1);
+
+  let nextTop = null;
+  if (targetTop < visibleTop + topPadding) {
+    nextTop = Math.max(targetTop - topPadding, 0);
+  } else if (targetBottom > visibleBottom - bottomPadding) {
+    nextTop = Math.max(targetTop - topPadding, 0);
+  }
+
+  if (nextTop !== null) {
+    pageStage.scrollTo({ top: nextTop, behavior: "smooth" });
+  }
+}
+
 function refreshOutline() {
   normalizeEditorStructure();
   refreshNumberingVisuals();
@@ -2196,15 +2230,10 @@ function refreshOutline() {
     button.className = `outline-item level-${level}`;
     button.textContent = text;
     button.addEventListener("click", () => {
-      const headingLineHeight = parseFloat(window.getComputedStyle(heading).lineHeight || "24") || 24;
-      const editorLineHeight = parseFloat(window.getComputedStyle(editor).lineHeight || "24") || 24;
-      const baseLineHeight = headingLineHeight || editorLineHeight || 24;
-      const extraOffset = baseLineHeight * 30;
-      const stageRect = pageStage.getBoundingClientRect();
-      const headingRect = heading.getBoundingClientRect();
-      const baseTop = pageStage.scrollTop + (headingRect.top - stageRect.top);
-      const top = baseTop - Math.max((pageStage.clientHeight - heading.offsetHeight) / 2, 24) - extraOffset;
-      pageStage.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
+      outline.querySelectorAll(".outline-item.is-active").forEach((item) => item.classList.remove("is-active"));
+      button.classList.add("is-active");
+      scrollOutlineTargetIntoView(heading);
+      flashOutlineTarget(heading);
       const range = document.createRange();
       range.selectNodeContents(heading);
       range.collapse(false);
