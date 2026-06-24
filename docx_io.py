@@ -11,7 +11,7 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn as docx_qn
-from docx.shared import Inches, Pt
+from docx.shared import Inches, Pt, Twips
 
 
 XML_NS = {
@@ -32,11 +32,13 @@ MAX_NUMBERING_LEVEL = 8
 DEFAULT_LATIN_FONT = "Times New Roman"
 DEFAULT_EAST_ASIA_FONT = "SimSun"
 DEFAULT_FONT_FAMILY = f"{DEFAULT_LATIN_FONT}, {DEFAULT_EAST_ASIA_FONT}"
+CODE_FONT_FAMILY = "Consolas, Courier New, monospace"
 DEFAULT_LINE_SPACING = 1.5
 DEFAULT_PARAGRAPH_SPACING = 1
 DEFAULT_PAGE_WIDTH_TWIPS = 11906
 DEFAULT_PAGE_HEIGHT_TWIPS = 16838
-ALLOWED_STYLE_ORDER = ("Normal", "Heading1", "Heading2", "Heading3")
+BLOCK_INDENT_STEP_TWIPS = 480
+ALLOWED_STYLE_ORDER = ("Normal", "Heading1", "Heading2", "Heading3", "Code")
 ALLOWED_STYLE_IDS = set(ALLOWED_STYLE_ORDER)
 STYLE_ALIAS_MAP = {
     "normal": "Normal",
@@ -72,6 +74,14 @@ def _normalize_page_twips(value: object, fallback: int) -> int:
     if parsed < 2000 or parsed > 40000:
         return fallback
     return parsed
+
+
+def _normalize_indent_level(value: object) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(min(parsed, 20), 0)
 
 
 def _normalize_num_fmt(value: object) -> str:
@@ -356,8 +366,12 @@ def _canonical_style_id(value: object) -> str | None:
     raw = str(value or "").strip()
     if not raw:
         return None
+    if raw in ALLOWED_STYLE_IDS:
+        return raw
     compact = re.sub(r"\s+", "", raw).lower()
     lowered = raw.lower()
+    if compact == "code":
+        return "Code"
     return STYLE_ALIAS_MAP.get(lowered) or STYLE_ALIAS_MAP.get(compact)
 
 
@@ -520,6 +534,7 @@ def _builtin_styles() -> list[dict]:
         _make_style("Heading1", "Heading 1", [DEFAULT_FONT_FAMILY, 20, True, False, False], outline_level=0, based_on="Normal"),
         _make_style("Heading2", "Heading 2", [DEFAULT_FONT_FAMILY, 16, True, False, False], outline_level=1, based_on="Normal"),
         _make_style("Heading3", "Heading 3", [DEFAULT_FONT_FAMILY, 14, True, False, False], outline_level=2, based_on="Normal"),
+        _make_style("Code", "Code", [CODE_FONT_FAMILY, 11, False, False, False], based_on="Normal"),
     ]
 
 
@@ -593,6 +608,7 @@ def _style_ref_for_block(block: dict, styles: dict[str, dict]) -> str:
         "heading1": "Heading1",
         "heading2": "Heading2",
         "heading3": "Heading3",
+        "code": "Code",
     }.get(style_key, "Normal")
 
 
@@ -606,6 +622,8 @@ def _style_to_block_style(style: dict | None) -> str:
         return "heading2"
     if outline_level == 2:
         return "heading3"
+    if style.get("id") == "Code":
+        return "code"
     return "normal"
 
 
@@ -1032,6 +1050,8 @@ def _apply_docx_paragraph_format(paragraph, block: dict, style_info: dict | None
     paragraph.paragraph_format.line_spacing = _normalize_line_spacing(
         block.get("line_spacing"), float((style_info or {}).get("line_spacing", DEFAULT_LINE_SPACING))
     )
+    indent_level = _normalize_indent_level(block.get("indent_level"))
+    paragraph.paragraph_format.left_indent = Pt((BLOCK_INDENT_STEP_TWIPS * indent_level) / 20)
 
 
 def _write_docx_runs(paragraph, block: dict, style_info: dict | None) -> None:
@@ -1162,8 +1182,8 @@ def document_to_docx_bytes(document: dict) -> bytes:
 
     section = doc.sections[0]
     page = document.get("page") or {}
-    section.page_width = _normalize_page_twips(page.get("width_twips"), DEFAULT_PAGE_WIDTH_TWIPS)
-    section.page_height = _normalize_page_twips(page.get("height_twips"), DEFAULT_PAGE_HEIGHT_TWIPS)
+    section.page_width = Twips(_normalize_page_twips(page.get("width_twips"), DEFAULT_PAGE_WIDTH_TWIPS))
+    section.page_height = Twips(_normalize_page_twips(page.get("height_twips"), DEFAULT_PAGE_HEIGHT_TWIPS))
 
     body = doc.element.body
     for child in list(body):
@@ -1436,6 +1456,7 @@ def _parse_paragraph_node(
     line_spacing = DEFAULT_LINE_SPACING
     space_before = DEFAULT_PARAGRAPH_SPACING
     space_after = DEFAULT_PARAGRAPH_SPACING
+    indent_level = 0
     numbering = None
     if p_pr is None or p_pr.find(qn("w", "jc")) is None:
         alignment = {
@@ -1456,6 +1477,11 @@ def _parse_paragraph_node(
                 space_before = max(int(before_raw) // 20, 0)
             if after_raw:
                 space_after = max(int(after_raw) // 20, 0)
+        ind = p_pr.find(qn("w", "ind"))
+        if ind is not None:
+            left_raw = ind.attrib.get(qn("w", "left"))
+            if left_raw:
+                indent_level = _normalize_indent_level(round(int(left_raw) / BLOCK_INDENT_STEP_TWIPS))
         num_pr = p_pr.find(qn("w", "numPr"))
         if num_pr is not None:
             num_id_node = num_pr.find(qn("w", "numId"))
@@ -1519,6 +1545,7 @@ def _parse_paragraph_node(
             "style_id": style_id,
             "style_name": (style_info or {}).get("name", style_id),
             "alignment": alignment,
+            "indent_level": indent_level,
             "line_spacing": line_spacing,
             "space_before": space_before,
             "space_after": space_after,

@@ -94,11 +94,14 @@ const MAX_EDITOR_HISTORY = 200;
 const NUMBERING_LEVEL_INDENT_PX = 24;
 const MIN_NUMBERING_PREFIX_PX = 18;
 const DEFAULT_FONT_FAMILY = '"Times New Roman", SimSun';
+const CODE_FONT_FAMILY = '"Consolas", "Courier New", monospace';
 const DEFAULT_LINE_SPACING = 1.5;
 const DEFAULT_DOCUMENT_WIDTH_MM = 210;
 const DEFAULT_DOCUMENT_HEIGHT_MM = 297;
 const DEFAULT_PARAGRAPH_SPACING = 1;
-const ALLOWED_STYLE_ORDER = ["Normal", "Heading1", "Heading2", "Heading3"];
+const BLOCK_INDENT_STEP_EM = 2;
+const MAX_BLOCK_INDENT_LEVEL = 20;
+const ALLOWED_STYLE_ORDER = ["Normal", "Heading1", "Heading2", "Heading3", "Code"];
 const RESOURCE_REFRESH_MS = 2000;
 const DEFAULT_SHORTCUTS = {
   bold: "Ctrl+B",
@@ -711,6 +714,7 @@ function defaultStyles() {
       { id: "Heading1", name: "Heading 1", descriptor: [DEFAULT_FONT_FAMILY, 20, true, false, false], alignment: "left", outline_level: 0, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
       { id: "Heading2", name: "Heading 2", descriptor: [DEFAULT_FONT_FAMILY, 16, true, false, false], alignment: "left", outline_level: 1, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
       { id: "Heading3", name: "Heading 3", descriptor: [DEFAULT_FONT_FAMILY, 14, true, false, false], alignment: "left", outline_level: 2, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "Code", name: "Code", descriptor: [CODE_FONT_FAMILY, 11, false, false, false], alignment: "left", outline_level: null, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
     ],
   };
 }
@@ -792,6 +796,7 @@ function styleIdFromBlockStyleKey(key) {
   if (key === "heading1") return "Heading1";
   if (key === "heading2") return "Heading2";
   if (key === "heading3") return "Heading3";
+  if (key === "code") return "Code";
   return "Normal";
 }
 
@@ -808,6 +813,7 @@ function blockStyleKey(style) {
   if (style.outline_level === 0) return "heading1";
   if (style.outline_level === 1) return "heading2";
   if (style.outline_level === 2) return "heading3";
+  if (style.id === "Code") return "code";
   return "normal";
 }
 
@@ -970,6 +976,46 @@ function applyParagraphMetrics(element, metrics) {
   element.style.marginBottom = `${spaceAfter}px`;
   element.dataset.spaceBefore = String(spaceBefore);
   element.dataset.spaceAfter = String(spaceAfter);
+}
+
+function normalizeBlockIndentLevel(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(Math.min(parsed, MAX_BLOCK_INDENT_LEVEL), 0);
+}
+
+function applyBlockIndent(element, indentLevel) {
+  if (!element) return;
+  const level = normalizeBlockIndentLevel(indentLevel);
+  element.dataset.indentLevel = String(level);
+  element.style.marginLeft = level > 0 ? `${level * BLOCK_INDENT_STEP_EM}em` : "0";
+}
+
+function indentLevelFromElement(element) {
+  if (!element) return 0;
+  return normalizeBlockIndentLevel(element.dataset.indentLevel || 0);
+}
+
+function updateBlockIndent(delta) {
+  restoreEditorSelection();
+  const blocks = selectedBlockElements();
+  if (!blocks.length) {
+    setStatus("请先选中段落。");
+    return;
+  }
+  const codeBlocks = blocks.filter((block) => {
+    const styleId = block.dataset.styleId || styleIdFromTag(block.tagName);
+    return styleId === "Code";
+  });
+  if (!codeBlocks.length) {
+    setStatus("只有 Code 样式支持该缩进快捷键。");
+    return;
+  }
+  recordUndoSnapshot();
+  codeBlocks.forEach((block) => applyBlockIndent(block, indentLevelFromElement(block) + delta));
+  markDirty();
+  refreshOutline();
+  setStatus(`已更新 Code 段落缩进（${codeBlocks.length} 段）。`);
 }
 
 function applyCurrentParagraphMetrics() {
@@ -1781,8 +1827,9 @@ function applyDescriptorToRun(runElement, descriptor) {
 
 function inlineStyledRuns(block) {
   if (!block || !block.querySelectorAll) return [];
-  return Array.from(block.querySelectorAll("span, font")).filter((node) => {
+  return Array.from(block.querySelectorAll("span, font, b, strong, i, em, u, s, code")).filter((node) => {
     if (node.tagName === "FONT") return true;
+    if (["B", "STRONG", "I", "EM", "U", "S", "CODE"].includes(node.tagName)) return true;
     const styleAttr = node.getAttribute("style") || "";
     return /font|text-decoration|background/i.test(styleAttr);
   });
@@ -1932,6 +1979,7 @@ function applyStyleVisuals(element, style) {
     spaceBefore: style.space_before ?? DEFAULT_PARAGRAPH_SPACING,
     spaceAfter: style.space_after ?? 0,
   });
+  applyBlockIndent(target, indentLevelFromElement(target));
   return target;
 }
 
@@ -2003,6 +2051,18 @@ function selectedBlockElements() {
   if (selected.length) return selected;
   const block = currentBlockElement();
   return block ? [block] : [];
+}
+
+function moveCaretToBlockStart(block) {
+  if (!block) return;
+  const range = document.createRange();
+  range.selectNodeContents(block);
+  range.collapse(true);
+  const selection = window.getSelection();
+  if (!selection) return;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  captureEditorSelection();
 }
 
 function allBlockElements() {
@@ -2394,6 +2454,7 @@ function paragraphsFromContainer(container) {
       style_id: styleId,
       style_name: style ? style.name : styleId,
       alignment: blockAlignment(element),
+      indent_level: indentLevelFromElement(element),
       line_spacing: Math.max(parseFloat(element.style.lineHeight || window.getComputedStyle(element).lineHeight) / parseFloat(window.getComputedStyle(element).fontSize || "16"), 1) || DEFAULT_LINE_SPACING,
       space_before: Math.max(Number(element.dataset.spaceBefore || 0), 0),
       space_after: Math.max(Number(element.dataset.spaceAfter || parseFloat(window.getComputedStyle(element).marginBottom || "0")), 0),
@@ -2488,6 +2549,7 @@ function renderParagraphBlock(block, parent) {
     spaceBefore: block.space_before ?? DEFAULT_PARAGRAPH_SPACING,
     spaceAfter: block.space_after ?? 0,
   });
+  applyBlockIndent(el, block.indent_level || 0);
   setNumberingData(el, block.numbering);
   if (!el.textContent.trim()) {
     el.innerHTML = "<br>";
@@ -2567,7 +2629,14 @@ function applyParagraphStyle(styleId) {
     return;
   }
   recordUndoSnapshot();
-  const updatedBlocks = blocks.map((block) => applyStyleVisuals(block, style));
+  const updatedBlocks = blocks.map((block) => {
+    const previousStyleId = block.dataset.styleId || styleIdFromTag(block.tagName);
+    const previousStyle = getStyleById(previousStyleId);
+    const previousDescriptor = cloneDescriptor(previousStyle?.descriptor);
+    const updatedBlock = applyStyleVisuals(block, style);
+    syncStyledRunsForStyleUpdate(updatedBlock, previousDescriptor, style.descriptor);
+    return updatedBlock;
+  });
   updatedBlocks[0]?.focus();
   paragraphStyleSelect.value = style.id;
   syncParagraphMetricsControls();
@@ -3268,12 +3337,30 @@ editor.addEventListener("keydown", (event) => {
   }
   if (event.key !== "Enter" || event.shiftKey) return;
   const current = currentBlockElement();
+  const currentStyleId = current?.dataset?.styleId || styleIdFromTag(current?.tagName || "");
   const currentNumbering = numberingFromElement(current);
   const hasText = (current?.textContent || "").trim().length > 0;
-  if (!current || !currentNumbering || !hasText) return;
+  const isHeadingBlock = ["Heading1", "Heading2", "Heading3"].includes(currentStyleId);
+  if (!current) return;
+  if (isHeadingBlock) {
+    event.preventDefault();
+    recordUndoSnapshot();
+    const nextBlock = document.createElement("p");
+    nextBlock.dataset.styleId = "Normal";
+    nextBlock.innerHTML = "<br>";
+    applyStyleVisuals(nextBlock, getStyleById("Normal"));
+    current.insertAdjacentElement("afterend", nextBlock);
+    moveCaretToBlockStart(nextBlock);
+    syncParagraphStyleSelect();
+    refreshOutline();
+    markDirty();
+    return;
+  }
   window.setTimeout(() => {
     const nextBlock = currentBlockElement();
-    if (!nextBlock || nextBlock === current || numberingFromElement(nextBlock)) {
+    if (!nextBlock || nextBlock === current) return;
+
+    if (!currentNumbering || !hasText || numberingFromElement(nextBlock)) {
       return;
     }
     setNumberingData(nextBlock, currentNumbering);
@@ -3309,6 +3396,20 @@ document.addEventListener("keydown", (event) => {
   if (editingShortcut) return;
 
   if (event.ctrlKey || event.metaKey) {
+    if (event.key === "]") {
+      if (selectionInsideEditor() || document.activeElement === editor || editor.contains(document.activeElement)) {
+        event.preventDefault();
+        updateBlockIndent(1);
+        return;
+      }
+    }
+    if (event.key === "[") {
+      if (selectionInsideEditor() || document.activeElement === editor || editor.contains(document.activeElement)) {
+        event.preventDefault();
+        updateBlockIndent(-1);
+        return;
+      }
+    }
     if (["=", "+"].includes(event.key)) {
       event.preventDefault();
       adjustEditorZoom(0.1);
