@@ -225,6 +225,7 @@ class TrayApp:
 
     def run(self) -> None:
         try:
+            self.start_server()
             self.icon.run()
         finally:
             self.stop_server()

@@ -38,10 +38,22 @@ DEFAULT_PARAGRAPH_SPACING = 1
 DEFAULT_PAGE_WIDTH_TWIPS = 11906
 DEFAULT_PAGE_HEIGHT_TWIPS = 16838
 BLOCK_INDENT_STEP_TWIPS = 480
-ALLOWED_STYLE_ORDER = ("Normal", "Heading1", "Heading2", "Heading3", "Code")
+ALLOWED_STYLE_ORDER = ("Normal", "NormalL1", "NormalL2", "NormalL3", "Code", "Heading1", "Heading2", "Heading3")
 ALLOWED_STYLE_IDS = set(ALLOWED_STYLE_ORDER)
 STYLE_ALIAS_MAP = {
     "normal": "Normal",
+    "normall1": "NormalL1",
+    "normal l1": "NormalL1",
+    "normal1": "NormalL1",
+    "l1": "NormalL1",
+    "normall2": "NormalL2",
+    "normal l2": "NormalL2",
+    "normal2": "NormalL2",
+    "l2": "NormalL2",
+    "normall3": "NormalL3",
+    "normal l3": "NormalL3",
+    "normal3": "NormalL3",
+    "l3": "NormalL3",
     "正文": "Normal",
     "h1": "Heading1",
     "heading1": "Heading1",
@@ -531,10 +543,13 @@ def _normalize_line_spacing(value: object, fallback: float = DEFAULT_LINE_SPACIN
 def _builtin_styles() -> list[dict]:
     return [
         _make_style("Normal", "Normal", [DEFAULT_FONT_FAMILY, 12, False, False, False], is_default=True),
+        _make_style("NormalL1", "Normal L1", [DEFAULT_FONT_FAMILY, 10, True, False, False], based_on="Normal"),
+        _make_style("NormalL2", "Normal L2", [DEFAULT_FONT_FAMILY, 10, True, True, False], based_on="Normal"),
+        _make_style("NormalL3", "Normal L3", [DEFAULT_FONT_FAMILY, 10, True, True, True], based_on="Normal"),
+        _make_style("Code", "Code", [CODE_FONT_FAMILY, 11, False, False, False], based_on="Normal"),
         _make_style("Heading1", "Heading 1", [DEFAULT_FONT_FAMILY, 20, True, False, False], outline_level=0, based_on="Normal"),
         _make_style("Heading2", "Heading 2", [DEFAULT_FONT_FAMILY, 16, True, False, False], outline_level=1, based_on="Normal"),
         _make_style("Heading3", "Heading 3", [DEFAULT_FONT_FAMILY, 14, True, False, False], outline_level=2, based_on="Normal"),
-        _make_style("Code", "Code", [CODE_FONT_FAMILY, 11, False, False, False], based_on="Normal"),
     ]
 
 

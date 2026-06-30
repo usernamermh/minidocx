@@ -1,4 +1,12 @@
-﻿const editor = document.getElementById("editor");
+﻿
+// 新增一个样式：
+// 1. 在 static/app.js 的 ALLOWED_STYLE_ORDER 里加 ID
+// 2. 在 defaultStyles() 里加一条样式定义
+// 3. 在 docx_io.py 的 ALLOWED_STYLE_ORDER 里加同样的 ID
+// 4. 在 _builtin_styles() 里加对应定义
+// 5. 如果需要兼容导入名称，再补 STYLE_ALIAS_MAP
+
+const editor = document.getElementById("editor");
 const appShell = document.getElementById("appShell");
 const leftSidebar = document.getElementById("leftSidebar");
 const topToolbar = document.getElementById("topToolbar");
@@ -101,7 +109,7 @@ const DEFAULT_DOCUMENT_HEIGHT_MM = 297;
 const DEFAULT_PARAGRAPH_SPACING = 1;
 const BLOCK_INDENT_STEP_EM = 2;
 const MAX_BLOCK_INDENT_LEVEL = 20;
-const ALLOWED_STYLE_ORDER = ["Normal", "Heading1", "Heading2", "Heading3", "Code"];
+const ALLOWED_STYLE_ORDER = ["Normal", "NormalL1", "NormalL2", "NormalL3", "Code", "Heading1", "Heading2", "Heading3"];
 const RESOURCE_REFRESH_MS = 2000;
 const DEFAULT_SHORTCUTS = {
   bold: "Ctrl+B",
@@ -521,7 +529,7 @@ function supportsFileSystemAccess() {
 function updateFileUiState() {
   fallbackFileBtn.classList.toggle("is-visible", !supportsFileSystemAccess());
   const dirtyPrefix = isDirty ? "*" : "";
-  saveBtn.textContent = currentFileHandle ? `${dirtyPrefix}保存文件 (${currentFileName})` : `${dirtyPrefix}保存文件`;
+  saveBtn.textContent = currentFileHandle ? `${dirtyPrefix}保存文件` : `${dirtyPrefix}保存文件`;
   document.title = `${isDirty ? "*" : ""}Mini DOCX Web Editor`;
 }
 
@@ -708,13 +716,17 @@ function closeShortcutModal() {
 }
 
 function defaultStyles() {
+  // 字体族，字号，加粗，斜体，下划线
   return {
     paragraph: [
       { id: "Normal", name: "Normal", descriptor: [DEFAULT_FONT_FAMILY, 12, false, false, false], alignment: "left", outline_level: null, is_default: true, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "NormalL1", name: "Normal L1", descriptor: [DEFAULT_FONT_FAMILY, 10, true, false, false], alignment: "left", outline_level: null, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "NormalL2", name: "Normal L2", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, false], alignment: "left", outline_level: null, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "NormalL3", name: "Normal L3", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, true], alignment: "left", outline_level: null, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "Code", name: "Code", descriptor: [CODE_FONT_FAMILY, 11, false, false, false], alignment: "left", outline_level: null, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
       { id: "Heading1", name: "Heading 1", descriptor: [DEFAULT_FONT_FAMILY, 20, true, false, false], alignment: "left", outline_level: 0, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
       { id: "Heading2", name: "Heading 2", descriptor: [DEFAULT_FONT_FAMILY, 16, true, false, false], alignment: "left", outline_level: 1, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
       { id: "Heading3", name: "Heading 3", descriptor: [DEFAULT_FONT_FAMILY, 14, true, false, false], alignment: "left", outline_level: 2, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "Code", name: "Code", descriptor: [CODE_FONT_FAMILY, 11, false, false, false], alignment: "left", outline_level: null, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
     ],
   };
 }
@@ -3504,7 +3516,7 @@ loadOutlineFilter();
 loadShortcuts();
 initLayoutToggles();
 if (saveStyleBtn) {
-  saveStyleBtn.title = "保存到当前 H1、H2、H3 或 Normal 样式";
+  saveStyleBtn.title = "保存到当前选中的段落样式";
 }
 cleanResourcesBtn?.addEventListener("click", cleanResources);
 refreshResourceStats();
@@ -3519,4 +3531,3 @@ applyPageSizeToEditor();
 syncPageSizeControls();
 resetEditorHistory();
 markClean();
-
