@@ -2040,18 +2040,53 @@ function collectBlocksBetween(startBlock, endBlock) {
 }
 
 function selectedBlockElements() {
+  normalizeEditorStructure();
   const selection = window.getSelection();
-  if (!selection || !selection.rangeCount) return [];
+  if (!selection || !selection.rangeCount) {
+    debugLog("prefix:selectedBlocks:none", { reason: "no-selection-or-range" });
+    return [];
+  }
   if (selection.isCollapsed) {
     const block = currentBlockElement();
-    return block ? [block] : [];
+    const result = block ? [block] : [];
+    debugLog("prefix:selectedBlocks:collapsed", {
+      anchorText: selection.anchorNode?.textContent?.slice(0, 80) || "",
+      resultCount: result.length,
+      resultTags: result.map((item) => item.tagName),
+      resultTexts: result.map((item) => (item.textContent || "").slice(0, 120)),
+    });
+    return result;
   }
   const range = selection.getRangeAt(0);
+  const anchorBlock = blockElementFromNode(selection.anchorNode);
+  const focusBlock = blockElementFromNode(selection.focusNode);
   const startBlock = blockElementFromNode(range.startContainer);
   const endBlock = blockElementFromNode(range.endContainer);
+  if (anchorBlock && focusBlock && anchorBlock !== focusBlock) {
+    const between = collectBlocksBetween(anchorBlock, focusBlock);
+    if (between.length) {
+      debugLog("prefix:selectedBlocks:anchor-focus", {
+        anchorTag: anchorBlock.tagName,
+        focusTag: focusBlock.tagName,
+        resultCount: between.length,
+        resultTags: between.map((item) => item.tagName),
+        resultTexts: between.map((item) => (item.textContent || "").slice(0, 120)),
+      });
+      return between;
+    }
+  }
   if (startBlock && endBlock && startBlock !== endBlock) {
     const between = collectBlocksBetween(startBlock, endBlock);
-    if (between.length) return between;
+    if (between.length) {
+      debugLog("prefix:selectedBlocks:range", {
+        startTag: startBlock.tagName,
+        endTag: endBlock.tagName,
+        resultCount: between.length,
+        resultTags: between.map((item) => item.tagName),
+        resultTexts: between.map((item) => (item.textContent || "").slice(0, 120)),
+      });
+      return between;
+    }
   }
   const selected = Array.from(editor.querySelectorAll("p, h1, h2, h3, div")).filter((block) => {
     try {
@@ -2060,16 +2095,248 @@ function selectedBlockElements() {
       return false;
     }
   });
-  if (selected.length) return selected;
+  if (selected.length) {
+    const deduped = Array.from(new Set(selected));
+    debugLog("prefix:selectedBlocks:intersects", {
+      resultCount: deduped.length,
+      resultTags: deduped.map((item) => item.tagName),
+      resultTexts: deduped.map((item) => (item.textContent || "").slice(0, 120)),
+      rangeText: range.toString().slice(0, 200),
+    });
+    return deduped;
+  }
   const block = currentBlockElement();
-  return block ? [block] : [];
+  const result = block ? [block] : [];
+  debugLog("prefix:selectedBlocks:fallback", {
+    resultCount: result.length,
+    resultTags: result.map((item) => item.tagName),
+    resultTexts: result.map((item) => (item.textContent || "").slice(0, 120)),
+  });
+  return result;
 }
+
+function blockPlainTextWithBreaks(block) {
+  if (!block) return "";
+  const lines = [];
+  let currentLine = "";
+
+  const flushLine = () => {
+    lines.push(currentLine);
+    currentLine = "";
+  };
+
+  const walk = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      currentLine += node.textContent || "";
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return;
+    }
+    if (node.tagName === "BR") {
+      flushLine();
+      return;
+    }
+    if (node.tagName === "IMG") {
+      return;
+    }
+    Array.from(node.childNodes).forEach(walk);
+  };
+
+  Array.from(block.childNodes).forEach(walk);
+  lines.push(currentLine);
+  return lines.join("\n");
+}
+
+function setBlockPlainTextWithBreaks(block, text) {
+  if (!block) return;
+  const normalized = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = normalized.split("\n");
+  block.innerHTML = "";
+  if (!lines.length) {
+    block.appendChild(document.createElement("br"));
+    return;
+  }
+  lines.forEach((line, index) => {
+    if (line) {
+      block.appendChild(document.createTextNode(line));
+    }
+    if (index < lines.length - 1) {
+      block.appendChild(document.createElement("br"));
+    }
+  });
+  if (!normalized || normalized.endsWith("\n")) {
+    block.appendChild(document.createElement("br"));
+  }
+}
+
+function adjustSelectedBlockLinePrefixes(mode) {
+  const blocks = selectedBlockElements().filter((block) => ["P", "H1", "H2", "H3", "DIV"].includes(block.tagName));
+  debugLog("prefix:adjust:start", {
+    mode,
+    blockCount: blocks.length,
+    blocks: blocks.map((block, index) => ({
+      index,
+      tag: block.tagName,
+      styleId: block.dataset.styleId || styleIdFromTag(block.tagName),
+      text: blockPlainTextWithBreaks(block).slice(0, 300),
+    })),
+  });
+  if (!blocks.length) {
+    setStatus("请先选中要处理的段落。");
+    return;
+  }
+  recordUndoSnapshot();
+  const changedBlocks = [];
+  blocks.forEach((block) => {
+    const source = blockPlainTextWithBreaks(block);
+    const sourceLines = source
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split("\n");
+    const nextLines = sourceLines.map((line) => {
+      if (mode === "indent") return `  ${line}`;
+      if (/^[ \u00A0]{2}/.test(line)) return line.slice(2);
+      if (/^[ \u00A0]/.test(line)) return line.slice(1);
+      return line;
+    });
+    const next = nextLines.join("\n");
+    debugLog("prefix:adjust:block", {
+      mode,
+      tag: block.tagName,
+      styleId: block.dataset.styleId || styleIdFromTag(block.tagName),
+      source,
+      sourceLines,
+      nextLines,
+      next,
+      changed: next !== source,
+    });
+    if (next === source) return;
+    setBlockPlainTextWithBreaks(block, next);
+    debugLog("prefix:adjust:block:after-write", {
+      mode,
+      tag: block.tagName,
+      styleId: block.dataset.styleId || styleIdFromTag(block.tagName),
+      afterText: blockPlainTextWithBreaks(block),
+      afterHtml: block.innerHTML,
+    });
+    changedBlocks.push(block);
+  });
+  if (!changedBlocks.length) {
+    debugLog("prefix:adjust:no-change", { mode });
+    setStatus(mode === "indent" ? "选中段落已全部带有前导空格。" : "选中段落没有可删除的前导空格。");
+    return;
+  }
+  selectBlockRange(changedBlocks[0], changedBlocks[changedBlocks.length - 1]);
+  refreshOutline();
+  markDirty();
+  debugLog("prefix:adjust:done", {
+    mode,
+    changedCount: changedBlocks.length,
+    changedTexts: changedBlocks.map((block) => blockPlainTextWithBreaks(block).slice(0, 300)),
+  });
+  setStatus(mode === "indent" ? `已为 ${changedBlocks.length} 段逐行添加 2 个前导空格。` : `已为 ${changedBlocks.length} 段逐行删除前导空格。`);
+}
+
+  function isRightPrefixShortcut(event) {
+    const key = String(event.key || "");
+    const code = String(event.code || "");
+    const keyCode = Number(event.keyCode || event.which || 0);
+    return [">", "》", ".", "。", "=", "+"].includes(key) || code === "Period" || code === "Equal" || keyCode === 190 || keyCode === 187;
+  }
+
+  function isLeftPrefixShortcut(event) {
+    const key = String(event.key || "");
+    const code = String(event.code || "");
+    const keyCode = Number(event.keyCode || event.which || 0);
+    return ["<", "《", ",", "，", "-", "_"].includes(key) || code === "Comma" || code === "Minus" || keyCode === 188 || keyCode === 189;
+  }
+
+  function handlePrefixShortcut(event, source = "document") {
+    if (event.__prefixShortcutHandled) return true;
+    const target = event.target;
+    const editingShortcut = target && target.closest && target.closest(".shortcut-item");
+    if (editingShortcut) return false;
+
+    debugLog("prefix:keydown", {
+      source,
+      key: event.key,
+      code: event.code,
+      keyCode: Number(event.keyCode || event.which || 0),
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+      selectionText: window.getSelection()?.toString()?.slice(0, 200) || "",
+      targetTag: target?.tagName || null,
+      targetText: target?.textContent?.slice(0, 120) || "",
+    });
+
+    if (!(event.ctrlKey || event.metaKey)) return false;
+    const editorActive = selectionInsideEditor() || document.activeElement === editor || editor.contains(document.activeElement);
+    if (!editorActive) return false;
+
+    if (isRightPrefixShortcut(event)) {
+      event.__prefixShortcutHandled = true;
+      debugLog("prefix:shortcut-match", { source, side: "right", key: event.key, code: event.code, keyCode: Number(event.keyCode || event.which || 0), shiftKey: event.shiftKey });
+      event.preventDefault();
+      event.stopPropagation();
+      adjustSelectedBlockLinePrefixes("indent");
+      return true;
+    }
+    if (isLeftPrefixShortcut(event)) {
+      event.__prefixShortcutHandled = true;
+      debugLog("prefix:shortcut-match", { source, side: "left", key: event.key, code: event.code, keyCode: Number(event.keyCode || event.which || 0), shiftKey: event.shiftKey });
+      event.preventDefault();
+      event.stopPropagation();
+      adjustSelectedBlockLinePrefixes("outdent");
+      return true;
+    }
+    return false;
+  }
+
+  function handleGlobalSaveShortcut(event, source = "document") {
+    const target = event.target;
+    const editingShortcut = target && target.closest && target.closest(".shortcut-item");
+    if (editingShortcut) return false;
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
+    if (String(event.key || "").toLowerCase() !== "s" && String(event.code || "") !== "KeyS") return false;
+    debugLog("save:shortcut-match", {
+      source,
+      key: event.key,
+      code: event.code,
+      keyCode: Number(event.keyCode || event.which || 0),
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+      targetTag: target?.tagName || null,
+    });
+    event.preventDefault();
+    event.stopPropagation();
+    Promise.resolve(saveDocx({ interactive: false, allowPicker: true })).catch((error) => {
+      handleAsyncError(error);
+    });
+    return true;
+  }
 
 function moveCaretToBlockStart(block) {
   if (!block) return;
   const range = document.createRange();
   range.selectNodeContents(block);
   range.collapse(true);
+  const selection = window.getSelection();
+  if (!selection) return;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  captureEditorSelection();
+}
+
+function selectBlockRange(startBlock, endBlock) {
+  if (!startBlock || !endBlock) return;
+  const range = document.createRange();
+  range.setStartBefore(startBlock);
+  range.setEndAfter(endBlock);
   const selection = window.getSelection();
   if (!selection) return;
   selection.removeAllRanges();
@@ -2937,6 +3204,22 @@ async function requestDocxBlob(filename) {
   return response.blob();
 }
 
+async function stageDocxBlob(filename, blob) {
+  const response = await fetch("/api/stage-save", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-Filename": filename || "mini-docx.docx",
+    },
+    body: blob,
+  });
+  const result = await response.json();
+  if (!response.ok || !result.ok) {
+    throw new Error(result.error || "创建临时保存副本失败。");
+  }
+  return result;
+}
+
 async function writeBlobToHandle(fileHandle, blob) {
   const writable = await fileHandle.createWritable();
   await writable.write(blob);
@@ -2978,7 +3261,14 @@ async function saveDocx(options = {}) {
       return;
     }
     const blob = await requestDocxBlob(currentFileName);
-    await writeBlobToHandle(currentFileHandle, blob);
+    const staged = await stageDocxBlob(currentFileName, blob);
+    try {
+      await writeBlobToHandle(currentFileHandle, blob);
+    } catch (error) {
+      const message = error?.message || String(error);
+      setStatus(`保存失败，已保留临时副本：${staged.path}`);
+      throw new Error(`${message}\n临时副本：${staged.path}`);
+    }
     markClean();
     setStatus(`已保存：${currentFileName}`);
   } catch (error) {
@@ -3431,10 +3721,23 @@ editor.addEventListener("focus", () => {
   window.setTimeout(syncSelectionUi, 0);
 });
 
+window.addEventListener("keydown", (event) => {
+  if (handleGlobalSaveShortcut(event, "window-capture")) {
+    return;
+  }
+  if (handlePrefixShortcut(event, "window-capture")) {
+    return;
+  }
+}, true);
+
 document.addEventListener("keydown", (event) => {
+  if (handleGlobalSaveShortcut(event, "document")) {
+    return;
+  }
   const target = event.target;
-  const editingShortcut = target && target.closest && target.closest(".shortcut-item");
-  if (editingShortcut) return;
+  if (handlePrefixShortcut(event, "document")) {
+    return;
+  }
 
   if (event.ctrlKey || event.metaKey) {
     if (event.key === "]") {

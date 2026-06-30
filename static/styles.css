@@ -408,6 +408,7 @@ select:hover,
 .editor h3 {
   margin: 0;
   line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .editor .numbered-paragraph {

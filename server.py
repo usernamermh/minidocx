@@ -4,14 +4,14 @@ import base64
 import errno
 import json
 import os
-import socket
 import sys
-from datetime import datetime
-from urllib.parse import quote
+import tempfile
 import webbrowser
+from datetime import datetime
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # 每个请求会在独立线程中处理
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import quote
 
 from docx_io import docx_bytes_to_document, document_to_docx_bytes
 from resource_tools import empty_all_working_sets, get_resource_stats
@@ -30,6 +30,35 @@ def _runtime_root() -> Path:
 
 
 DEBUG_LOG_PATH = _runtime_root() / "debug_runtime.log"
+SAFE_SAVE_DIR = Path.home() / "MiniDocxSafeSaves"
+MAX_STAGED_SAVES_PER_FILE = 10
+
+
+def _safe_filename(filename: str) -> str:
+    raw = str(filename or "").strip() or "mini-docx.docx"
+    cleaned = "".join(ch if ch not in '<>:"/\\|?*' and ord(ch) >= 32 else "_" for ch in raw).strip(" .")
+    if not cleaned:
+        cleaned = "mini-docx.docx"
+    if not cleaned.lower().endswith(".docx"):
+        cleaned += ".docx"
+    return cleaned
+
+
+def _prune_staged_saves(filename: str) -> None:
+    stem = Path(filename).stem
+    suffix = Path(filename).suffix or ".docx"
+    pattern = f"{stem}-*{suffix}"
+    candidates = []
+    for path in SAFE_SAVE_DIR.glob(pattern):
+        if not path.is_file():
+            continue
+        candidates.append(path)
+    candidates.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+    for stale in candidates[MAX_STAGED_SAVES_PER_FILE:]:
+        try:
+            stale.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 class EditorHandler(BaseHTTPRequestHandler):
@@ -65,9 +94,14 @@ class EditorHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         route = self.path.split("?", 1)[0]
         length = int(self.headers.get("Content-Length", "0"))
-        raw = self.rfile.read(length) if length else b"{}"
+        raw = self.rfile.read(length) if length else b""
+
+        if route == "/api/stage-save":
+            self._stage_save(raw)
+            return
+
         try:
-            payload = json.loads(raw.decode("utf-8"))
+            payload = json.loads(raw.decode("utf-8") or "{}")
         except json.JSONDecodeError:
             self._send_json({"error": "Invalid JSON payload."}, HTTPStatus.BAD_REQUEST)
             return
@@ -77,6 +111,9 @@ class EditorHandler(BaseHTTPRequestHandler):
             return
         if route == "/api/export-docx":
             self._export_docx(payload)
+            return
+        if route == "/api/delete-staged-save":
+            self._delete_staged_save(payload)
             return
         if route == "/api/debug-log":
             self._debug_log(payload)
@@ -115,6 +152,42 @@ class EditorHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(binary)))
         self.end_headers()
         self.wfile.write(binary)
+
+    def _stage_save(self, raw: bytes) -> None:
+        filename = _safe_filename(self.headers.get("X-Filename", "mini-docx.docx"))
+        SAFE_SAVE_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        prefix = f"{Path(filename).stem}-{stamp}-"
+        suffix = Path(filename).suffix or ".docx"
+        try:
+            with tempfile.NamedTemporaryFile(prefix=prefix, suffix=suffix, dir=SAFE_SAVE_DIR, delete=False) as fh:
+                fh.write(raw)
+                staged_path = Path(fh.name)
+        except Exception as exc:
+            self._send_json(
+                {"ok": False, "error": str(exc), "directory": str(SAFE_SAVE_DIR)},
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
+        _prune_staged_saves(filename)
+        self._send_json({"ok": True, "path": str(staged_path), "directory": str(SAFE_SAVE_DIR)})
+
+    def _delete_staged_save(self, payload: dict) -> None:
+        raw_path = payload.get("path")
+        if not raw_path:
+            self._send_json({"ok": False, "error": "Missing staged save path."}, HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            target = Path(str(raw_path)).resolve()
+            safe_root = SAFE_SAVE_DIR.resolve()
+            if safe_root not in target.parents:
+                self._send_json({"ok": False, "error": "Invalid staged save path."}, HTTPStatus.BAD_REQUEST)
+                return
+            target.unlink(missing_ok=True)
+        except Exception as exc:
+            self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        self._send_json({"ok": True})
 
     def _debug_log(self, payload: dict) -> None:
         try:
@@ -156,7 +229,7 @@ class EditorHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
-        body = json.dumps(payload).encode("utf-8")
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
