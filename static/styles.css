@@ -116,6 +116,25 @@ body {
   padding: 5px 8px;
 }
 
+.resource-panel .ghost-btn {
+  min-height: 27px;
+  padding: 10px 10px;
+  font-size: 18px;
+  font-family: "SimSun", "宋体", "Times New Roman", Times, serif;
+}
+
+.resource-panel .panel-head {
+  display: flex;             /* 开启弹性布局，让 h2 和 button 在同一行 */
+  align-items: center;       /* 垂直居中对齐 */
+  justify-content: space-between; /* 让标题靠左，按钮靠右（这是最美观的排版） */
+  padding: 10px;             /* 可选：给头部加点内边距，不要紧贴边框 */
+}
+
+.resource-panel .panel-head h2 {
+  margin: 0;                 /* 去掉浏览器默认的 h2 上下边距 */
+  font-size: 16px;           /* 可选：稍微调小一点标题，让整体更协调 */
+}
+
 .quick-actions-panel .panel-head {
   margin-bottom: 8px;
 }
@@ -147,6 +166,8 @@ body {
 }
 
 .resource-metric {
+  display: flex;
+  align-items: center; /* 核心：让里面的文字垂直居中对齐 */
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -154,14 +175,12 @@ body {
 }
 
 .resource-label {
-  display: block;
-  color: var(--muted);
-  font-size: 11px;
+  font-size: 20px;
+  font-family: "SimSun", "宋体", "Times New Roman", Times, serif; /* 设置字体 */
+  margin-right: 10px; /* 右边空出 10px 的距离 */
 }
 
 .resource-metric strong {
-  display: block;
-  margin-top: 3px;
   font-size: 16px;
 }
 
@@ -252,14 +271,14 @@ body {
 
 .operation-status-panel {
   min-height: 28px;
-  margin: 0 10px 8px;
+  margin: 0 8px 8px;
   padding: 5px 9px;
   border: 1px solid rgba(98, 78, 54, 0.18);
   border-radius: 7px;
   background: rgba(255, 252, 246, 0.72);
   color: var(--muted);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 15px;
+  line-height: 18px;
 }
 
 #operationStatusText {

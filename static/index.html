@@ -9,15 +9,13 @@
 <body>
   <div class="app-shell" id="appShell">
     <aside class="sidebar" id="leftSidebar" aria-label="左侧功能区">
+      
       <div class="sidebar-toggle-strip">
         <button id="sidebarToggleBtn" class="chrome-toggle" type="button" aria-controls="leftSidebar" aria-expanded="true" title="点击折叠；在此处滚轮调整左侧宽度">隐藏左侧</button>
       </div>
-      <div class="operation-status-panel" aria-live="polite" aria-label="操作状态">
-        <span id="operationStatusText">准备就绪</span>
-      </div>
+
       <div class="panel quick-actions-panel">
         <div class="panel-head">
-          <h2>文档</h2>
         </div>
         <div class="quick-actions-grid">
           <button id="newBtn" type="button">新建</button>
@@ -33,6 +31,14 @@
           </label>
         </div>
       </div>
+
+      <div class="panel compact-action-panel history-panel">
+        <button id="historyPanelBtn" class="ghost-btn" type="button">历史/常用</button>
+      </div>
+      <div class="panel compact-action-panel shortcuts-panel">
+        <button id="shortcutSettingsBtn" class="ghost-btn" type="button">快捷键设置</button>
+      </div>
+
       <div class="panel resource-panel">
         <div class="panel-head">
           <h2>资源监控</h2>
@@ -49,15 +55,9 @@
           </div>
         </div>
         <p id="resourceMemoryDetail" class="resource-detail">-- / -- MB</p>
-        <p id="resourceStatusText" class="resource-status"></p>
       </div>
+
       <div class="panel">
-      <div class="panel compact-action-panel history-panel">
-        <button id="historyPanelBtn" class="ghost-btn" type="button">历史/常用</button>
-      </div>
-      <div class="panel compact-action-panel shortcuts-panel">
-        <button id="shortcutSettingsBtn" class="ghost-btn" type="button">快捷键设置</button>
-      </div>
         <div class="panel-head">
           <h2>导航</h2>
         </div>
@@ -68,6 +68,7 @@
           <label><input id="outlineLevel3" type="checkbox" checked> H3</label>
         </div>
       </div>
+
       <div class="panel">
         <div class="panel-head">
           <h2>二级导航</h2>
@@ -79,6 +80,11 @@
         </div>
         <nav id="secondaryOutline" class="outline secondary-outline"></nav>
       </div>
+
+      <div class="operation-status-panel" aria-live="polite" aria-label="操作状态">
+        <span id="operationStatusText">准备就绪</span>
+      </div>
+
     </aside>
 
     <main class="workspace">
