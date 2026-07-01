@@ -543,9 +543,9 @@ def _normalize_line_spacing(value: object, fallback: float = DEFAULT_LINE_SPACIN
 def _builtin_styles() -> list[dict]:
     return [
         _make_style("Normal", "Normal", [DEFAULT_FONT_FAMILY, 12, False, False, False], is_default=True),
-        _make_style("NormalL1", "Normal L1", [DEFAULT_FONT_FAMILY, 10, True, False, False], based_on="Normal"),
-        _make_style("NormalL2", "Normal L2", [DEFAULT_FONT_FAMILY, 10, True, True, False], based_on="Normal"),
-        _make_style("NormalL3", "Normal L3", [DEFAULT_FONT_FAMILY, 10, True, True, True], based_on="Normal"),
+        _make_style("NormalL1", "Normal L1", [DEFAULT_FONT_FAMILY, 10, True, False, False], outline_level=3, based_on="Normal"),
+        _make_style("NormalL2", "Normal L2", [DEFAULT_FONT_FAMILY, 10, True, True, False], outline_level=4, based_on="Normal"),
+        _make_style("NormalL3", "Normal L3", [DEFAULT_FONT_FAMILY, 10, True, True, True], outline_level=5, based_on="Normal"),
         _make_style("Code", "Code", [CODE_FONT_FAMILY, 11, False, False, False], based_on="Normal"),
         _make_style("Heading1", "Heading 1", [DEFAULT_FONT_FAMILY, 20, True, False, False], outline_level=0, based_on="Normal"),
         _make_style("Heading2", "Heading 2", [DEFAULT_FONT_FAMILY, 16, True, False, False], outline_level=1, based_on="Normal"),

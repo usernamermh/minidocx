@@ -12,6 +12,10 @@ const leftSidebar = document.getElementById("leftSidebar");
 const topToolbar = document.getElementById("topToolbar");
 const pageStage = document.getElementById("pageStage");
 const outline = document.getElementById("outline");
+const secondaryOutline = document.getElementById("secondaryOutline");
+const secondaryOutlineLessBtn = document.getElementById("secondaryOutlineLessBtn");
+const secondaryOutlineMoreBtn = document.getElementById("secondaryOutlineMoreBtn");
+const secondaryOutlineLevelText = document.getElementById("secondaryOutlineLevelText");
 const statusText = document.getElementById("statusText");
 const serverAddress = document.getElementById("serverAddress");
 const openBtn = document.getElementById("openBtn");
@@ -86,6 +90,9 @@ let editorUndoStack = [];
 let editorRedoStack = [];
 let suppressEditorHistory = false;
 let debugLogSequence = 0;
+let activePrimaryOutlineElement = null;
+let secondaryOutlineMaxLevel = null;
+let secondaryOutlineAvailableMaxLevel = 2;
 
 const SHORTCUT_STORAGE_KEY = "mini_docx_shortcuts";
 const OUTLINE_FILTER_KEY = "mini_docx_outline_filter";
@@ -254,7 +261,7 @@ async function refreshResourceStats() {
       throw new Error(data.error || "资源状态获取失败");
     }
     renderResourceStats(data);
-    if (resourceStatusText) resourceStatusText.textContent = "每 2 秒自动更新";
+    if (resourceStatusText) resourceStatusText.textContent = "";
   } catch (error) {
     if (resourceStatusText) resourceStatusText.textContent = error.message || "资源状态获取失败";
   }
@@ -720,9 +727,9 @@ function defaultStyles() {
   return {
     paragraph: [
       { id: "Normal", name: "Normal", descriptor: [DEFAULT_FONT_FAMILY, 12, false, false, false], alignment: "left", outline_level: null, is_default: true, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "NormalL1", name: "Normal L1", descriptor: [DEFAULT_FONT_FAMILY, 10, true, false, false], alignment: "left", outline_level: null, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "NormalL2", name: "Normal L2", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, false], alignment: "left", outline_level: null, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "NormalL3", name: "Normal L3", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, true], alignment: "left", outline_level: null, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "NormalL1", name: "Normal L1", descriptor: [DEFAULT_FONT_FAMILY, 10, true, false, false], alignment: "left", outline_level: 3, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "NormalL2", name: "Normal L2", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, false], alignment: "left", outline_level: 4, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "NormalL3", name: "Normal L3", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, true], alignment: "left", outline_level: 5, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
       { id: "Code", name: "Code", descriptor: [CODE_FONT_FAMILY, 11, false, false, false], alignment: "left", outline_level: null, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
       { id: "Heading1", name: "Heading 1", descriptor: [DEFAULT_FONT_FAMILY, 20, true, false, false], alignment: "left", outline_level: 0, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
       { id: "Heading2", name: "Heading 2", descriptor: [DEFAULT_FONT_FAMILY, 16, true, false, false], alignment: "left", outline_level: 1, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
@@ -2485,45 +2492,127 @@ function scrollOutlineTargetIntoView(target) {
   }
 }
 
+function focusOutlineTarget(target) {
+  if (!target) return;
+  scrollOutlineTargetIntoView(target);
+  flashOutlineTarget(target);
+  const range = document.createRange();
+  range.selectNodeContents(target);
+  range.collapse(false);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  editor.focus();
+  syncParagraphStyleSelect();
+}
+
+function renderOutlineButtons(container, items, emptyText, indentBase = 1, options = {}) {
+  if (!container) return;
+  container.innerHTML = "";
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.textContent = emptyText;
+    empty.className = "outline-item";
+    container.appendChild(empty);
+    return;
+  }
+  items.forEach((item, index) => {
+    const text = item.textContent.trim() || `标题 ${index + 1}`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "outline-item";
+    button.textContent = text;
+    const indentLevel = Math.max(0, Number(item.level) - indentBase);
+    if (indentLevel > 0) {
+      button.style.paddingLeft = `${indentLevel * 12}px`;
+    }
+    if (item.element === options.activeElement) {
+      button.classList.add("is-active");
+    }
+    button.addEventListener("click", () => {
+      container.querySelectorAll(".outline-item.is-active").forEach((node) => node.classList.remove("is-active"));
+      button.classList.add("is-active");
+      options.onItemClick?.(item);
+      focusOutlineTarget(item.element);
+    });
+    container.appendChild(button);
+  });
+}
+
+function outlineItemFromBlock(block) {
+  const styleId = block.dataset.styleId || styleIdFromTag(block.tagName);
+  const style = getStyleById(styleId);
+  const fallbackLevel = /^H[1-3]$/.test(block.tagName) ? Number(block.tagName.slice(1)) - 1 : NaN;
+  const rawLevel = style?.outline_level;
+  const level = rawLevel !== null && rawLevel !== undefined && rawLevel !== "" && Number.isFinite(Number(rawLevel))
+    ? Number(rawLevel)
+    : fallbackLevel;
+  return {
+    element: block,
+    level,
+    textContent: block.textContent || "",
+  };
+}
+
+function secondaryItemsForAnchor(allItems, anchorElement) {
+  const anchorIndex = allItems.findIndex((item) => item.element === anchorElement);
+  if (anchorIndex < 0) return [];
+  const anchorLevel = allItems[anchorIndex].level;
+  const descendants = [];
+  for (let index = anchorIndex + 1; index < allItems.length; index += 1) {
+    const item = allItems[index];
+    if (item.level <= anchorLevel) break;
+    if (item.level >= 2 && item.level > anchorLevel && item.textContent.trim()) {
+      descendants.push(item);
+    }
+  }
+  return descendants;
+}
+
+function effectiveSecondaryOutlineMaxLevel() {
+  if (secondaryOutlineMaxLevel === null) return secondaryOutlineAvailableMaxLevel;
+  return Math.min(Math.max(secondaryOutlineMaxLevel, 2), secondaryOutlineAvailableMaxLevel);
+}
+
+function renderSecondaryOutline(allItems) {
+  const availableItems = secondaryItemsForAnchor(allItems, activePrimaryOutlineElement);
+  secondaryOutlineAvailableMaxLevel = availableItems.length
+    ? Math.max(2, ...availableItems.map((item) => item.level))
+    : 2;
+  const effectiveMaxLevel = effectiveSecondaryOutlineMaxLevel();
+  const visibleItems = availableItems.filter((item) => item.level <= effectiveMaxLevel);
+
+  if (secondaryOutlineLevelText) {
+    secondaryOutlineLevelText.textContent = effectiveMaxLevel > 2 ? `L2–L${effectiveMaxLevel}` : "L2";
+  }
+  if (secondaryOutlineLessBtn) secondaryOutlineLessBtn.disabled = effectiveMaxLevel <= 2;
+  if (secondaryOutlineMoreBtn) secondaryOutlineMoreBtn.disabled = effectiveMaxLevel >= secondaryOutlineAvailableMaxLevel;
+  renderOutlineButtons(secondaryOutline, visibleItems, "当前标题下暂无子节", 2);
+}
+
 function refreshOutline() {
   normalizeEditorStructure();
   refreshNumberingVisuals();
-  outline.innerHTML = "";
-  const headings = Array.from(editor.querySelectorAll("h1, h2, h3"))
-    .filter((heading) => outlineFilter[Number(heading.tagName.slice(1))]);
-  if (!headings.length) {
-    const empty = document.createElement("div");
-    empty.textContent = "暂无标题导航";
-    empty.className = "outline-item";
-    outline.appendChild(empty);
-    syncParagraphStyleSelect();
-    return;
-  }
-  headings.forEach((heading, index) => {
-    const level = Number(heading.tagName.slice(1));
-    const text = heading.textContent.trim() || `标题 ${index + 1}`;
-    const headingId = slugify(text, `heading-${index + 1}`);
-    heading.dataset.headingId = headingId;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `outline-item level-${level}`;
-    button.textContent = text;
-    button.addEventListener("click", () => {
-      outline.querySelectorAll(".outline-item.is-active").forEach((item) => item.classList.remove("is-active"));
-      button.classList.add("is-active");
-      scrollOutlineTargetIntoView(heading);
-      flashOutlineTarget(heading);
-      const range = document.createRange();
-      range.selectNodeContents(heading);
-      range.collapse(false);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-      editor.focus();
-      syncParagraphStyleSelect();
-    });
-    outline.appendChild(button);
+  const allItems = allBlockElements()
+    .map(outlineItemFromBlock)
+    .filter((item) => Number.isFinite(item.level) && item.textContent.trim());
+  const primaryItems = allItems.filter((item) => {
+    const displayLevel = item.level + 1;
+    return displayLevel <= 3 && outlineFilter[displayLevel];
   });
+
+  if (!primaryItems.some((item) => item.element === activePrimaryOutlineElement)) {
+    activePrimaryOutlineElement = primaryItems[0]?.element || null;
+  }
+
+  renderOutlineButtons(outline, primaryItems, "暂无标题导航", 0, {
+    activeElement: activePrimaryOutlineElement,
+    onItemClick: (item) => {
+      activePrimaryOutlineElement = item.element;
+      renderSecondaryOutline(allItems);
+    },
+  });
+  renderSecondaryOutline(allItems);
   syncParagraphStyleSelect();
 }
 
@@ -3360,6 +3449,20 @@ document.getElementById("removeColBtn").addEventListener("click", removeTableCol
 deleteTableBtn.addEventListener("click", deleteCurrentTable);
 
 document.getElementById("refreshOutlineBtn")?.addEventListener("click", refreshOutline);
+secondaryOutlineLessBtn?.addEventListener("click", () => {
+  const currentMaxLevel = effectiveSecondaryOutlineMaxLevel();
+  if (currentMaxLevel <= 2) return;
+  secondaryOutlineMaxLevel = currentMaxLevel - 1;
+  refreshOutline();
+  setStatus(`二级导航最多显示到 level ${secondaryOutlineMaxLevel}`);
+});
+secondaryOutlineMoreBtn?.addEventListener("click", () => {
+  const currentMaxLevel = effectiveSecondaryOutlineMaxLevel();
+  if (currentMaxLevel >= secondaryOutlineAvailableMaxLevel) return;
+  secondaryOutlineMaxLevel = currentMaxLevel + 1;
+  refreshOutline();
+  setStatus(`二级导航最多显示到 level ${secondaryOutlineMaxLevel}`);
+});
 if (outlineLevel1 && outlineLevel2 && outlineLevel3) {
   outlineLevel1.checked = outlineFilter[1];
   outlineLevel2.checked = outlineFilter[2];

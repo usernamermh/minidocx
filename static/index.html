@@ -46,7 +46,7 @@
           </div>
         </div>
         <p id="resourceMemoryDetail" class="resource-detail">-- / -- MB</p>
-        <p id="resourceStatusText" class="resource-status">每 2 秒自动更新</p>
+        <p id="resourceStatusText" class="resource-status"></p>
       </div>
       <div class="panel">
         <div class="panel-head">
@@ -58,6 +58,17 @@
           <label><input id="outlineLevel2" type="checkbox" checked> H2</label>
           <label><input id="outlineLevel3" type="checkbox" checked> H3</label>
         </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>二级导航</h2>
+          <div class="secondary-outline-controls" aria-label="二级导航层级范围">
+            <span id="secondaryOutlineLevelText">L2</span>
+            <button id="secondaryOutlineLessBtn" class="outline-level-btn" type="button" title="更少级别（最低为 level 2）" aria-label="更少级别">−</button>
+            <button id="secondaryOutlineMoreBtn" class="outline-level-btn" type="button" title="更多级别" aria-label="更多级别">+</button>
+          </div>
+        </div>
+        <nav id="secondaryOutline" class="outline secondary-outline"></nav>
       </div>
 
       <div class="panel history-panel">
