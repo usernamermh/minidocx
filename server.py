@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import base64
+import ctypes
 import errno
 import json
 import os
 import sys
 import tempfile
+import threading
 import webbrowser
 from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote
+from ctypes import wintypes
 
 from docx_io import docx_bytes_to_document, document_to_docx_bytes
 from resource_tools import empty_all_working_sets, get_resource_stats
@@ -32,6 +35,41 @@ def _runtime_root() -> Path:
 DEBUG_LOG_PATH = _runtime_root() / "debug_runtime.log"
 SAFE_SAVE_DIR = Path.home() / "MiniDocxSafeSaves"
 MAX_STAGED_SAVES_PER_FILE = 10
+FILE_DIALOG_LOCK = threading.Lock()
+
+OFN_OVERWRITEPROMPT = 0x00000002
+OFN_NOCHANGEDIR = 0x00000008
+OFN_PATHMUSTEXIST = 0x00000800
+OFN_FILEMUSTEXIST = 0x00001000
+OFN_EXPLORER = 0x00080000
+
+
+class OPENFILENAMEW(ctypes.Structure):
+    _fields_ = [
+        ("lStructSize", wintypes.DWORD),
+        ("hwndOwner", wintypes.HWND),
+        ("hInstance", wintypes.HINSTANCE),
+        ("lpstrFilter", wintypes.LPCWSTR),
+        ("lpstrCustomFilter", wintypes.LPWSTR),
+        ("nMaxCustFilter", wintypes.DWORD),
+        ("nFilterIndex", wintypes.DWORD),
+        ("lpstrFile", wintypes.LPWSTR),
+        ("nMaxFile", wintypes.DWORD),
+        ("lpstrFileTitle", wintypes.LPWSTR),
+        ("nMaxFileTitle", wintypes.DWORD),
+        ("lpstrInitialDir", wintypes.LPCWSTR),
+        ("lpstrTitle", wintypes.LPCWSTR),
+        ("Flags", wintypes.DWORD),
+        ("nFileOffset", wintypes.WORD),
+        ("nFileExtension", wintypes.WORD),
+        ("lpstrDefExt", wintypes.LPCWSTR),
+        ("lCustData", wintypes.LPARAM),
+        ("lpfnHook", wintypes.LPVOID),
+        ("lpTemplateName", wintypes.LPCWSTR),
+        ("pvReserved", wintypes.LPVOID),
+        ("dwReserved", wintypes.DWORD),
+        ("FlagsEx", wintypes.DWORD),
+    ]
 
 
 def _safe_filename(filename: str) -> str:
@@ -59,6 +97,75 @@ def _prune_staged_saves(filename: str) -> None:
             stale.unlink(missing_ok=True)
         except Exception:
             pass
+
+
+def _create_staged_save(filename: str, binary: bytes) -> Path:
+    safe_name = _safe_filename(filename)
+    SAFE_SAVE_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    prefix = f"{Path(safe_name).stem}-{stamp}-"
+    suffix = Path(safe_name).suffix or ".docx"
+    with tempfile.NamedTemporaryFile(prefix=prefix, suffix=suffix, dir=SAFE_SAVE_DIR, delete=False) as fh:
+        fh.write(binary)
+        staged_path = Path(fh.name)
+    _prune_staged_saves(safe_name)
+    return staged_path
+
+
+def _show_windows_file_dialog(*, save: bool, title: str, suggested_name: str = "", initial_dir: str = "") -> str:
+    if os.name != "nt":
+        raise RuntimeError("Native file dialogs are only available on Windows.")
+    with FILE_DIALOG_LOCK:
+        buffer = ctypes.create_unicode_buffer(32768)
+        if suggested_name:
+            buffer.value = suggested_name
+        filters = "Word 文档 (*.docx)\0*.docx\0所有文件 (*.*)\0*.*\0\0"
+        owner = ctypes.windll.user32.GetForegroundWindow()
+        dialog = OPENFILENAMEW()
+        dialog.lStructSize = ctypes.sizeof(OPENFILENAMEW)
+        dialog.hwndOwner = owner
+        dialog.lpstrFilter = filters
+        dialog.nFilterIndex = 1
+        dialog.lpstrFile = ctypes.cast(buffer, wintypes.LPWSTR)
+        dialog.nMaxFile = len(buffer)
+        dialog.lpstrInitialDir = initial_dir or None
+        dialog.lpstrTitle = title
+        dialog.lpstrDefExt = "docx"
+        dialog.Flags = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST
+        if save:
+            dialog.Flags |= OFN_OVERWRITEPROMPT
+            succeeded = ctypes.windll.comdlg32.GetSaveFileNameW(ctypes.byref(dialog))
+        else:
+            dialog.Flags |= OFN_FILEMUSTEXIST
+            succeeded = ctypes.windll.comdlg32.GetOpenFileNameW(ctypes.byref(dialog))
+        if succeeded:
+            return buffer.value
+        error_code = ctypes.windll.comdlg32.CommDlgExtendedError()
+        if error_code:
+            raise OSError(f"Windows file dialog failed with code {error_code}.")
+        return ""
+
+
+def _absolute_windows_path(raw_path: str) -> Path:
+    path = Path(str(raw_path or "").strip()).expanduser().resolve()
+    if path.suffix.lower() != ".docx":
+        path = path.with_suffix(".docx")
+    return path
+
+
+def _atomic_write(path: Path, binary: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix=f".{path.stem}-", suffix=".tmp", dir=path.parent, delete=False) as fh:
+            fh.write(binary)
+            fh.flush()
+            os.fsync(fh.fileno())
+            temporary_path = Path(fh.name)
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 class EditorHandler(BaseHTTPRequestHandler):
@@ -109,6 +216,15 @@ class EditorHandler(BaseHTTPRequestHandler):
         if route == "/api/import-docx":
             self._import_docx(payload)
             return
+        if route == "/api/pick-open-docx":
+            self._pick_open_docx()
+            return
+        if route == "/api/pick-save-path":
+            self._pick_save_path(payload)
+            return
+        if route == "/api/save-docx-path":
+            self._save_docx_path(payload)
+            return
         if route == "/api/export-docx":
             self._export_docx(payload)
             return
@@ -153,23 +269,64 @@ class EditorHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(binary)
 
+    def _pick_open_docx(self) -> None:
+        try:
+            selected = _show_windows_file_dialog(save=False, title="打开 DOCX 文件")
+            if not selected:
+                self._send_json({"ok": False, "cancelled": True})
+                return
+            path = Path(selected).resolve()
+            document = docx_bytes_to_document(path.read_bytes())
+        except Exception as exc:
+            self._send_json({"ok": False, "error": f"Failed to open DOCX: {exc}"}, HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json({"ok": True, "path": str(path), "name": path.name, "document": document})
+
+    def _pick_save_path(self, payload: dict) -> None:
+        suggested_name = _safe_filename(payload.get("suggested_name") or "mini-docx.docx")
+        current_path = str(payload.get("current_path") or "").strip()
+        initial_dir = str(Path(current_path).expanduser().parent) if current_path else str(Path.home() / "Documents")
+        try:
+            selected = _show_windows_file_dialog(
+                save=True,
+                title="保存 DOCX 文件",
+                suggested_name=suggested_name,
+                initial_dir=initial_dir,
+            )
+            if not selected:
+                self._send_json({"ok": False, "cancelled": True})
+                return
+            path = _absolute_windows_path(selected)
+        except Exception as exc:
+            self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json({"ok": True, "path": str(path), "name": path.name})
+
+    def _save_docx_path(self, payload: dict) -> None:
+        raw_path = payload.get("path")
+        if not raw_path:
+            self._send_json({"ok": False, "error": "Missing target path."}, HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            path = _absolute_windows_path(str(raw_path))
+            binary = document_to_docx_bytes(payload.get("document") or {})
+            staged_path = _create_staged_save(path.name, binary)
+            _atomic_write(path, binary)
+        except Exception as exc:
+            self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json({"ok": True, "path": str(path), "name": path.name, "backup_path": str(staged_path)})
+
     def _stage_save(self, raw: bytes) -> None:
         filename = _safe_filename(self.headers.get("X-Filename", "mini-docx.docx"))
-        SAFE_SAVE_DIR.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        prefix = f"{Path(filename).stem}-{stamp}-"
-        suffix = Path(filename).suffix or ".docx"
         try:
-            with tempfile.NamedTemporaryFile(prefix=prefix, suffix=suffix, dir=SAFE_SAVE_DIR, delete=False) as fh:
-                fh.write(raw)
-                staged_path = Path(fh.name)
+            staged_path = _create_staged_save(filename, raw)
         except Exception as exc:
             self._send_json(
                 {"ok": False, "error": str(exc), "directory": str(SAFE_SAVE_DIR)},
                 HTTPStatus.INTERNAL_SERVER_ERROR,
             )
             return
-        _prune_staged_saves(filename)
         self._send_json({"ok": True, "path": str(staged_path), "directory": str(SAFE_SAVE_DIR)})
 
     def _delete_staged_save(self, payload: dict) -> None:

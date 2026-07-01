@@ -17,6 +17,7 @@ const secondaryOutlineLessBtn = document.getElementById("secondaryOutlineLessBtn
 const secondaryOutlineMoreBtn = document.getElementById("secondaryOutlineMoreBtn");
 const secondaryOutlineLevelText = document.getElementById("secondaryOutlineLevelText");
 const statusText = document.getElementById("statusText");
+const operationStatusText = document.getElementById("operationStatusText");
 const serverAddress = document.getElementById("serverAddress");
 const openBtn = document.getElementById("openBtn");
 const openDocxInput = document.getElementById("openDocxInput");
@@ -27,10 +28,15 @@ const fontFamily = document.getElementById("fontFamily");
 const fontSize = document.getElementById("fontSize");
 const highlightColor = document.getElementById("highlightColor");
 const applyHighlightBtn = document.getElementById("applyHighlightBtn");
-const pageSizeSelect = document.getElementById("pageSizeSelect");
 const pageWidthInput = document.getElementById("pageWidthInput");
 const pageHeightInput = document.getElementById("pageHeightInput");
 const applyPageSizeBtn = document.getElementById("applyPageSizeBtn");
+const fontAdvancedToggle = document.getElementById("fontAdvancedToggle");
+const fontAdvancedContent = document.getElementById("fontAdvancedContent");
+const tableAdvancedToggle = document.getElementById("tableAdvancedToggle");
+const tableAdvancedContent = document.getElementById("tableAdvancedContent");
+const pageAdvancedToggle = document.getElementById("pageAdvancedToggle");
+const pageAdvancedContent = document.getElementById("pageAdvancedContent");
 const outlineLevel1 = document.getElementById("outlineLevel1");
 const outlineLevel2 = document.getElementById("outlineLevel2");
 const outlineLevel3 = document.getElementById("outlineLevel3");
@@ -42,10 +48,7 @@ const saveStyleBtn = document.getElementById("saveStyleBtn");
 const updateStyleBtn = document.getElementById("updateStyleBtn");
 const formatPainterBtn = document.getElementById("formatPainterBtn");
 const clearFormatBtn = document.getElementById("clearFormatBtn");
-const resetParagraphSpacingBtn = document.getElementById("resetParagraphSpacingBtn");
 const toggleNumberingBtn = document.getElementById("toggleNumberingBtn");
-const numberLevelUpBtn = document.getElementById("numberLevelUpBtn");
-const numberLevelDownBtn = document.getElementById("numberLevelDownBtn");
 const numberFormatSelect = document.getElementById("numberFormatSelect");
 const shortcutSettingsBtn = document.getElementById("shortcutSettingsBtn");
 const shortcutList = document.getElementById("shortcutList");
@@ -74,6 +77,7 @@ let currentStyles = { paragraph: [] };
 let customShortcuts = {};
 let currentFileHandle = null;
 let currentFileName = "mini-docx.docx";
+let currentFilePath = null;
 let formatPainterPayload = null;
 let isDirty = false;
 let isLoadingDocument = false;
@@ -91,12 +95,18 @@ let editorRedoStack = [];
 let suppressEditorHistory = false;
 let debugLogSequence = 0;
 let activePrimaryOutlineElement = null;
+let activePrimaryOutlineBlockIndex = null;
+let primaryOutlineWasManuallySelected = false;
+let activeSecondaryOutlineElement = null;
+let activeSecondaryOutlineBlockIndex = null;
+let secondaryOutlineWasManuallySelected = false;
 let secondaryOutlineMaxLevel = null;
 let secondaryOutlineAvailableMaxLevel = 2;
 
 const SHORTCUT_STORAGE_KEY = "mini_docx_shortcuts";
 const OUTLINE_FILTER_KEY = "mini_docx_outline_filter";
 const LAYOUT_STORAGE_KEY = "mini_docx_layout";
+const LAYOUT_STRUCTURE_VERSION = 7;
 const HANDLE_DB_NAME = "mini_docx_handles";
 const HANDLE_DB_VERSION = 1;
 const STORE_RECENT = "recent_files";
@@ -116,6 +126,12 @@ const DEFAULT_DOCUMENT_HEIGHT_MM = 297;
 const DEFAULT_PARAGRAPH_SPACING = 1;
 const BLOCK_INDENT_STEP_EM = 2;
 const MAX_BLOCK_INDENT_LEVEL = 20;
+const MIN_SIDEBAR_WIDTH = 220;
+const MAX_SIDEBAR_WIDTH = 520;
+const SIDEBAR_WIDTH_STEP = 16;
+const MIN_TOOLBAR_HEIGHT = 96;
+const MAX_TOOLBAR_HEIGHT = 420;
+const TOOLBAR_HEIGHT_STEP = 12;
 const ALLOWED_STYLE_ORDER = ["Normal", "NormalL1", "NormalL2", "NormalL3", "Code", "Heading1", "Heading2", "Heading3"];
 const RESOURCE_REFRESH_MS = 2000;
 const DEFAULT_SHORTCUTS = {
@@ -185,10 +201,45 @@ function setToolbarCollapsed(collapsed) {
   }
 }
 
+function clampLayoutSize(value, minimum, maximum) {
+  return Math.min(Math.max(Math.round(Number(value) || minimum), minimum), maximum);
+}
+
+function setSidebarWidth(width) {
+  const nextWidth = clampLayoutSize(width, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
+  appShell?.style.setProperty("--sidebar-width", `${nextWidth}px`);
+  return nextWidth;
+}
+
+function setToolbarHeight(height) {
+  const nextHeight = clampLayoutSize(height, MIN_TOOLBAR_HEIGHT, MAX_TOOLBAR_HEIGHT);
+  if (topToolbar) topToolbar.style.height = `${nextHeight}px`;
+  return nextHeight;
+}
+
+function resizeDirectionFromWheel(event) {
+  if (event.deltaY === 0) return 0;
+  return event.deltaY < 0 ? 1 : -1;
+}
+
 function initLayoutToggles() {
   const state = loadLayoutState();
+  const initialSidebarWidth = setSidebarWidth(state.sidebarWidth || leftSidebar?.getBoundingClientRect().width || 300);
+  const naturalToolbarHeight = Math.ceil(topToolbar?.scrollHeight || topToolbar?.getBoundingClientRect().height || MIN_TOOLBAR_HEIGHT);
+  const requestedToolbarHeight = state.layoutVersion === LAYOUT_STRUCTURE_VERSION
+    ? state.toolbarHeight
+    : Math.min(Number(state.toolbarHeight) || naturalToolbarHeight, naturalToolbarHeight);
+  const initialToolbarHeight = setToolbarHeight(requestedToolbarHeight || naturalToolbarHeight);
   setSidebarCollapsed(Boolean(state.sidebarCollapsed));
   setToolbarCollapsed(Boolean(state.toolbarCollapsed));
+
+  const initialState = {
+    ...state,
+    sidebarWidth: initialSidebarWidth,
+    toolbarHeight: initialToolbarHeight,
+    layoutVersion: LAYOUT_STRUCTURE_VERSION,
+  };
+  saveLayoutState(initialState);
 
   sidebarToggleBtn?.addEventListener("click", () => {
     const nextState = {
@@ -206,6 +257,49 @@ function initLayoutToggles() {
     };
     setToolbarCollapsed(nextState.toolbarCollapsed);
     saveLayoutState(nextState);
+  });
+
+  leftSidebar?.querySelector(".sidebar-toggle-strip")?.addEventListener("wheel", (event) => {
+    if (appShell?.classList.contains("is-sidebar-collapsed")) return;
+    const direction = resizeDirectionFromWheel(event);
+    if (!direction) return;
+    event.preventDefault();
+    const currentWidth = leftSidebar.getBoundingClientRect().width;
+    const sidebarWidth = setSidebarWidth(currentWidth + direction * SIDEBAR_WIDTH_STEP);
+    saveLayoutState({ ...loadLayoutState(), sidebarWidth });
+  }, { passive: false });
+
+  topToolbar?.querySelector(".toolbar-control-row")?.addEventListener("wheel", (event) => {
+    if (topToolbar.classList.contains("is-collapsed")) return;
+    const direction = resizeDirectionFromWheel(event);
+    if (!direction) return;
+    event.preventDefault();
+    const currentHeight = topToolbar.getBoundingClientRect().height;
+    const toolbarHeight = setToolbarHeight(currentHeight + direction * TOOLBAR_HEIGHT_STEP);
+    saveLayoutState({ ...loadLayoutState(), toolbarHeight });
+  }, { passive: false });
+}
+
+function setAdvancedToolGroupExpanded(toggle, content, expanded) {
+  if (!toggle || !content) return;
+  content.classList.toggle("hidden-tool-content", !expanded);
+  toggle.setAttribute("aria-expanded", String(expanded));
+  toggle.textContent = toggle.dataset.label || toggle.textContent;
+  toggle.title = expanded ? `收起${toggle.textContent}` : `展开${toggle.textContent}`;
+}
+
+function initAdvancedToolGroups() {
+  [
+    [fontAdvancedToggle, fontAdvancedContent],
+    [tableAdvancedToggle, tableAdvancedContent],
+    [pageAdvancedToggle, pageAdvancedContent],
+  ].forEach(([toggle, content]) => {
+    if (!toggle || !content) return;
+    setAdvancedToolGroupExpanded(toggle, content, false);
+    toggle.addEventListener("click", () => {
+      const expanded = toggle.getAttribute("aria-expanded") !== "true";
+      setAdvancedToolGroupExpanded(toggle, content, expanded);
+    });
   });
 }
 
@@ -227,7 +321,21 @@ const SHORTCUT_ACTIONS = {
 };
 
 function setStatus(text) {
-  statusText.textContent = text;
+  if (operationStatusText) {
+    operationStatusText.textContent = text;
+    operationStatusText.title = text;
+  }
+}
+
+function windowsPath(path) {
+  return String(path || "").replaceAll("/", "\\");
+}
+
+function updateCurrentFileStatus() {
+  if (!statusText) return;
+  const displayPath = currentFilePath ? windowsPath(currentFilePath) : "尚未保存";
+  statusText.textContent = `当前文件：${displayPath}`;
+  statusText.title = currentFilePath ? displayPath : "当前文件尚未选择保存位置";
 }
 
 function formatPercent(value) {
@@ -1963,14 +2071,11 @@ function applyPageSizeToEditor() {
 }
 
 function syncPageSizeControls() {
-  if (!pageSizeSelect || !pageWidthInput || !pageHeightInput) return;
+  if (!pageWidthInput || !pageHeightInput) return;
   const widthMm = twipsToMm(pageSize.widthTwips);
   const heightMm = twipsToMm(pageSize.heightTwips);
   pageWidthInput.value = String(widthMm || 210);
   pageHeightInput.value = String(heightMm || 297);
-  const isA4 = widthMm === 210 && heightMm === 297;
-  const isLetter = widthMm === 216 && heightMm === 279;
-  pageSizeSelect.value = isA4 ? "A4" : isLetter ? "Letter" : "Custom";
 }
 
 function setPageSizeFromMm(widthMm, heightMm) {
@@ -2508,14 +2613,21 @@ function focusOutlineTarget(target) {
 
 function renderOutlineButtons(container, items, emptyText, indentBase = 1, options = {}) {
   if (!container) return;
+  const previousScrollTop = container.scrollTop;
+  const previousActiveButton = container.querySelector(".outline-item.is-active");
+  const previousActiveOffset = previousActiveButton
+    ? previousActiveButton.offsetTop - previousScrollTop
+    : null;
   container.innerHTML = "";
   if (!items.length) {
     const empty = document.createElement("div");
     empty.textContent = emptyText;
     empty.className = "outline-item";
     container.appendChild(empty);
+    container.scrollTop = previousScrollTop;
     return;
   }
+  let nextActiveButton = null;
   items.forEach((item, index) => {
     const text = item.textContent.trim() || `标题 ${index + 1}`;
     const button = document.createElement("button");
@@ -2528,6 +2640,7 @@ function renderOutlineButtons(container, items, emptyText, indentBase = 1, optio
     }
     if (item.element === options.activeElement) {
       button.classList.add("is-active");
+      nextActiveButton = button;
     }
     button.addEventListener("click", () => {
       container.querySelectorAll(".outline-item.is-active").forEach((node) => node.classList.remove("is-active"));
@@ -2537,9 +2650,14 @@ function renderOutlineButtons(container, items, emptyText, indentBase = 1, optio
     });
     container.appendChild(button);
   });
+  if (nextActiveButton && previousActiveOffset !== null) {
+    container.scrollTop = Math.max(nextActiveButton.offsetTop - previousActiveOffset, 0);
+  } else {
+    container.scrollTop = previousScrollTop;
+  }
 }
 
-function outlineItemFromBlock(block) {
+function outlineItemFromBlock(block, blockIndex) {
   const styleId = block.dataset.styleId || styleIdFromTag(block.tagName);
   const style = getStyleById(styleId);
   const fallbackLevel = /^H[1-3]$/.test(block.tagName) ? Number(block.tagName.slice(1)) - 1 : NaN;
@@ -2549,9 +2667,70 @@ function outlineItemFromBlock(block) {
     : fallbackLevel;
   return {
     element: block,
+    blockIndex,
     level,
     textContent: block.textContent || "",
   };
+}
+
+function nearestOutlineItem(items, blockIndex) {
+  if (!items.length || !Number.isFinite(blockIndex)) return null;
+  return items.reduce((nearest, item) => {
+    if (!nearest) return item;
+    const itemDistance = Math.abs(item.blockIndex - blockIndex);
+    const nearestDistance = Math.abs(nearest.blockIndex - blockIndex);
+    if (itemDistance < nearestDistance) return item;
+    if (itemDistance > nearestDistance) return nearest;
+    return item.blockIndex <= blockIndex && nearest.blockIndex > blockIndex ? item : nearest;
+  }, null);
+}
+
+function rememberPrimaryOutlineItem(item, manuallySelected = false) {
+  if (!item) return;
+  activePrimaryOutlineElement = item.element;
+  activePrimaryOutlineBlockIndex = item.blockIndex;
+  if (manuallySelected) primaryOutlineWasManuallySelected = true;
+}
+
+function rememberSecondaryOutlineItem(item, manuallySelected = false) {
+  if (!item) return;
+  activeSecondaryOutlineElement = item.element;
+  activeSecondaryOutlineBlockIndex = item.blockIndex;
+  if (manuallySelected) secondaryOutlineWasManuallySelected = true;
+}
+
+function resetOutlineNavigationState() {
+  activePrimaryOutlineElement = null;
+  activePrimaryOutlineBlockIndex = null;
+  primaryOutlineWasManuallySelected = false;
+  activeSecondaryOutlineElement = null;
+  activeSecondaryOutlineBlockIndex = null;
+  secondaryOutlineWasManuallySelected = false;
+  if (outline) outline.scrollTop = 0;
+  if (secondaryOutline) secondaryOutline.scrollTop = 0;
+}
+
+function resolvePrimaryOutlineItem(allItems, visiblePrimaryItems) {
+  const eligibleItems = allItems.filter((item) => item.level <= 2 && item.textContent.trim());
+  const currentItem = eligibleItems.find((item) => item.element === activePrimaryOutlineElement);
+  if (currentItem) {
+    rememberPrimaryOutlineItem(currentItem);
+    return currentItem;
+  }
+
+  const nearbyItem = nearestOutlineItem(eligibleItems, activePrimaryOutlineBlockIndex);
+  if (nearbyItem) {
+    rememberPrimaryOutlineItem(nearbyItem);
+    return nearbyItem;
+  }
+
+  if (!primaryOutlineWasManuallySelected && visiblePrimaryItems.length) {
+    rememberPrimaryOutlineItem(visiblePrimaryItems[0]);
+    return visiblePrimaryItems[0];
+  }
+
+  activePrimaryOutlineElement = null;
+  return null;
 }
 
 function secondaryItemsForAnchor(allItems, anchorElement) {
@@ -2581,13 +2760,25 @@ function renderSecondaryOutline(allItems) {
     : 2;
   const effectiveMaxLevel = effectiveSecondaryOutlineMaxLevel();
   const visibleItems = availableItems.filter((item) => item.level <= effectiveMaxLevel);
+  if (secondaryOutlineWasManuallySelected) {
+    const currentItem = availableItems.find((item) => item.element === activeSecondaryOutlineElement);
+    const resolvedItem = currentItem || nearestOutlineItem(availableItems, activeSecondaryOutlineBlockIndex);
+    if (resolvedItem) {
+      rememberSecondaryOutlineItem(resolvedItem);
+    } else {
+      activeSecondaryOutlineElement = null;
+    }
+  }
 
   if (secondaryOutlineLevelText) {
     secondaryOutlineLevelText.textContent = effectiveMaxLevel > 2 ? `L2–L${effectiveMaxLevel}` : "L2";
   }
   if (secondaryOutlineLessBtn) secondaryOutlineLessBtn.disabled = effectiveMaxLevel <= 2;
   if (secondaryOutlineMoreBtn) secondaryOutlineMoreBtn.disabled = effectiveMaxLevel >= secondaryOutlineAvailableMaxLevel;
-  renderOutlineButtons(secondaryOutline, visibleItems, "当前标题下暂无子节", 2);
+  renderOutlineButtons(secondaryOutline, visibleItems, "当前标题下暂无子节", 2, {
+    activeElement: activeSecondaryOutlineElement,
+    onItemClick: (item) => rememberSecondaryOutlineItem(item, true),
+  });
 }
 
 function refreshOutline() {
@@ -2601,14 +2792,16 @@ function refreshOutline() {
     return displayLevel <= 3 && outlineFilter[displayLevel];
   });
 
-  if (!primaryItems.some((item) => item.element === activePrimaryOutlineElement)) {
-    activePrimaryOutlineElement = primaryItems[0]?.element || null;
-  }
+  resolvePrimaryOutlineItem(allItems, primaryItems);
 
   renderOutlineButtons(outline, primaryItems, "暂无标题导航", 0, {
     activeElement: activePrimaryOutlineElement,
     onItemClick: (item) => {
-      activePrimaryOutlineElement = item.element;
+      rememberPrimaryOutlineItem(item, true);
+      activeSecondaryOutlineElement = null;
+      activeSecondaryOutlineBlockIndex = null;
+      secondaryOutlineWasManuallySelected = false;
+      if (secondaryOutline) secondaryOutline.scrollTop = 0;
       renderSecondaryOutline(allItems);
     },
   });
@@ -2780,6 +2973,7 @@ async function openDocxFromHandle(fileHandle) {
   await ensureHandlePermission(fileHandle, false);
   const file = await fileHandle.getFile();
   currentFileHandle = fileHandle;
+  currentFilePath = null;
   currentFileName = file.name || "mini-docx.docx";
   await openDocx(file);
   try {
@@ -2788,20 +2982,31 @@ async function openDocxFromHandle(fileHandle) {
     // Ignore storage errors for recent list.
   }
   updateFileUiState();
+  updateCurrentFileStatus();
 }
 
 async function openDocxPicker() {
   if (!confirmDiscardChanges()) return;
-  if (!supportsFileSystemAccess()) {
-    openDocxInput.click();
+  const response = await fetch("/api/pick-open-docx", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  const result = await response.json();
+  if (result.cancelled) {
+    setStatus("操作已取消");
     return;
   }
-  const [fileHandle] = await window.showOpenFilePicker({
-    multiple: false,
-    types: [{ description: "Word 文档", accept: { "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"] } }],
-  });
-  if (!fileHandle) return;
-  await openDocxFromHandle(fileHandle);
+  if (!response.ok || !result.ok) {
+    throw new Error(result.error || "打开文件失败。");
+  }
+  loadDocument(result.document);
+  currentFileHandle = null;
+  currentFilePath = windowsPath(result.path);
+  currentFileName = result.name || "mini-docx.docx";
+  updateFileUiState();
+  updateCurrentFileStatus();
+  setStatus(`已打开：${currentFilePath}`);
 }
 
 function mergeRuns(runs) {
@@ -2974,6 +3179,7 @@ function renderTableBlock(block) {
 
 function loadDocument(documentData) {
   isLoadingDocument = true;
+  resetOutlineNavigationState();
   clearFormatPainter();
   docxMeta = cloneDocxMeta(documentData._docx_meta);
   stylesDirty = false;
@@ -3275,8 +3481,10 @@ async function openDocx(file) {
     throw new Error(result.error || "打开文件失败。");
   }
   loadDocument(result.document);
+  currentFilePath = null;
   currentFileName = file.name || currentFileName;
   updateFileUiState();
+  updateCurrentFileStatus();
   setStatus(`已打开 ${file.name}`);
 }
 
@@ -3318,57 +3526,49 @@ async function writeBlobToHandle(fileHandle, blob) {
 async function saveDocx(options = {}) {
   const interactive = options.interactive !== false;
   const allowPicker = options.allowPicker === true;
-  setStatus("正在保存文件...");
   const targetName = currentFileName || "mini-docx.docx";
   try {
-    if (!currentFileHandle) {
-      if (supportsFileSystemAccess()) {
-        if (!interactive && !allowPicker) {
-          setStatus("请先点击“保存文件”选择保存位置。");
-          return;
-        }
-        currentFileHandle = await window.showSaveFilePicker({
-          suggestedName: targetName,
-          types: [{ description: "Word 文档", accept: { "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"] } }],
-        });
-        currentFileName = currentFileHandle.name || targetName;
-      } else {
-        if (!interactive && !allowPicker) {
-          setStatus("当前环境无法静默保存，请点击“保存文件”。");
-          return;
-        }
-        return exportDocx();
+    if (!currentFilePath) {
+      if (!interactive && !allowPicker) {
+        setStatus("请先点击“保存文件”选择保存位置。");
+        return;
       }
-    }
-    const hasPermission = await ensureHandlePermission(currentFileHandle, true, interactive || allowPicker);
-    if (!hasPermission) {
-      if (!interactive && allowPicker && supportsFileSystemAccess()) {
-        currentFileHandle = null;
-        return saveDocx({ interactive: true, allowPicker: true });
+      const pathResponse = await fetch("/api/pick-save-path", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ suggested_name: targetName, current_path: currentFilePath }),
+      });
+      const pathResult = await pathResponse.json();
+      if (pathResult.cancelled) {
+        setStatus("操作已取消");
+        return;
       }
-      setStatus("保存需要权限，请点击“保存文件”。");
-      return;
-    }
-    const blob = await requestDocxBlob(currentFileName);
-    const staged = await stageDocxBlob(currentFileName, blob);
-    try {
-      await writeBlobToHandle(currentFileHandle, blob);
-    } catch (error) {
-      const message = error?.message || String(error);
-      setStatus(`保存失败，已保留临时副本：${staged.path}`);
-      throw new Error(`${message}\n临时副本：${staged.path}`);
-    }
-    markClean();
-    setStatus(`已保存：${currentFileName}`);
-  } catch (error) {
-    if (isStaleHandleError(error)) {
+      if (!pathResponse.ok || !pathResult.ok) {
+        throw new Error(pathResult.error || "选择保存位置失败。");
+      }
+      currentFilePath = windowsPath(pathResult.path);
+      currentFileName = pathResult.name || targetName;
       currentFileHandle = null;
-      if (interactive) {
-        return saveDocx({ interactive });
-      }
-      setStatus("保存失败：文件句柄已失效，请重新点击“保存文件”选择位置。");
-      return;
+      updateFileUiState();
+      updateCurrentFileStatus();
     }
+
+    setStatus(`正在保存：${currentFilePath}`);
+    const response = await fetch("/api/save-docx-path", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: currentFilePath, document: editorToDocument() }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error || "保存文件失败。");
+    }
+    currentFilePath = windowsPath(result.path);
+    currentFileName = result.name || currentFileName;
+    markClean();
+    updateCurrentFileStatus();
+    setStatus(`已保存：${currentFilePath}`);
+  } catch (error) {
     if (!interactive) {
       setStatus(error.message || String(error));
       return;
@@ -3403,17 +3603,20 @@ async function exportDocx() {
 
 document.getElementById("newBtn").addEventListener("click", () => {
   if (!confirmDiscardChanges()) return;
+  resetOutlineNavigationState();
   docxMeta = null;
   stylesDirty = false;
   numberingDirty = false;
   currentStyles = normalizeStyles(defaultStyles());
   currentFileHandle = null;
+  currentFilePath = null;
   currentFileName = "mini-docx.docx";
   populateStyleSelect("Normal");
   editor.innerHTML = "";
   ensureStarterContent();
   resetEditorHistory();
   markClean();
+  updateCurrentFileStatus();
   setStatus("已新建文档");
 });
 
@@ -3606,17 +3809,7 @@ fontSize.addEventListener("change", () => {
 
 applyHighlightBtn.addEventListener("click", () => applyTextBackground(highlightColor.value));
 
-if (applyPageSizeBtn && pageWidthInput && pageHeightInput && pageSizeSelect) {
-  pageSizeSelect.addEventListener("change", () => {
-    if (pageSizeSelect.value === "A4") {
-      setPageSizeFromMm(210, 297);
-      return;
-    }
-    if (pageSizeSelect.value === "Letter") {
-      setPageSizeFromMm(216, 279);
-      return;
-    }
-  });
+if (applyPageSizeBtn && pageWidthInput && pageHeightInput) {
   applyPageSizeBtn.addEventListener("click", () => {
     setPageSizeFromMm(pageWidthInput.value, pageHeightInput.value);
   });
@@ -3627,15 +3820,7 @@ lineSpacingSelect.addEventListener("change", applyCurrentParagraphMetrics);
 spaceBeforeInput.addEventListener("change", applyCurrentParagraphMetrics);
 spaceAfterInput.addEventListener("change", applyCurrentParagraphMetrics);
 toggleNumberingBtn?.addEventListener("click", toggleNumbering);
-numberLevelUpBtn?.addEventListener("click", () => updateNumberingLevel(1));
-numberLevelDownBtn?.addEventListener("click", () => updateNumberingLevel(-1));
 numberFormatSelect?.addEventListener("change", applyNumberFormatToSelection);
-resetParagraphSpacingBtn.addEventListener("click", () => {
-  lineSpacingSelect.value = String(DEFAULT_LINE_SPACING);
-  spaceBeforeInput.value = "0";
-  spaceAfterInput.value = "0";
-  applyCurrentParagraphMetrics();
-});
 clearFormatBtn.addEventListener("click", () => {
   exec("removeFormat");
   setStatus("已清除选区文字格式。");
@@ -3921,6 +4106,7 @@ currentStyles = normalizeStyles(defaultStyles());
 loadOutlineFilter();
 loadShortcuts();
 initLayoutToggles();
+initAdvancedToolGroups();
 if (saveStyleBtn) {
   saveStyleBtn.title = "保存到当前选中的段落样式";
 }
@@ -3931,6 +4117,7 @@ populateStyleSelect("Normal");
 renderShortcutInputs();
 setServerAddress();
 updateFileUiState();
+updateCurrentFileStatus();
 applyEditorZoom();
 ensureStarterContent();
 applyPageSizeToEditor();

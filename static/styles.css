@@ -28,8 +28,9 @@ body {
 }
 
 .app-shell {
+  --sidebar-width: 300px;
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   gap: 18px;
   height: 100vh;
   padding: 18px;
@@ -56,6 +57,7 @@ body {
 .sidebar-toggle-strip {
   display: flex;
   justify-content: flex-end;
+  cursor: ew-resize;
 }
 
 .chrome-toggle {
@@ -72,6 +74,10 @@ body {
 }
 
 .app-shell.is-sidebar-collapsed .sidebar > .panel {
+  display: none;
+}
+
+.app-shell.is-sidebar-collapsed .operation-status-panel {
   display: none;
 }
 
@@ -98,6 +104,16 @@ body {
 
 .panel {
   padding: 18px;
+}
+
+.compact-action-panel {
+  padding: 7px;
+}
+
+.compact-action-panel .ghost-btn {
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
 }
 
 .quick-actions-panel .panel-head {
@@ -225,6 +241,34 @@ body {
   font-size: 12px;
 }
 
+#statusText {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operation-status-panel {
+  min-height: 28px;
+  margin: 0 10px 8px;
+  padding: 5px 9px;
+  border: 1px solid rgba(98, 78, 54, 0.18);
+  border-radius: 7px;
+  background: rgba(255, 252, 246, 0.72);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#operationStatusText {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .outline-filter label {
   display: inline-flex;
   align-items: center;
@@ -295,19 +339,27 @@ body {
 .toolbar-control-row {
   display: flex;
   justify-content: flex-end;
-  margin-bottom: 10px;
+  order: 5;
+  margin: 0 0 0 auto;
+  cursor: ns-resize;
 }
 
 .toolbar-wrap.is-collapsed {
+  height: auto !important;
   overflow: visible;
   padding: 8px 14px;
 }
 
 .toolbar-wrap.is-collapsed .toolbar-control-row {
-  margin-bottom: 0;
+  margin-left: auto;
 }
 
 .toolbar-wrap.is-collapsed .toolbar-groups {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.toolbar-wrap.is-collapsed .toolbar-groups > .tool-group {
   display: none;
 }
 
@@ -322,14 +374,11 @@ body {
 }
 
 .toolbar-groups {
-  display: grid;
-  grid-template-columns:
-    minmax(195px, 0.7875fr)
-    minmax(605px, 2.2625fr)
-    minmax(165px, 0.675fr)
-    minmax(195px, 0.825fr);
-  gap: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 0;
+  align-items: start;
 }
 
 .tool-group {
@@ -337,6 +386,71 @@ body {
   border: 1px solid var(--line);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.58);
+}
+
+.paragraph-tool-group {
+  order: 1;
+  flex: 0 0 100%;
+}
+
+.font-tool-group,
+.table-tool-group,
+.page-tool-group {
+  flex: 0 0 148px;
+}
+
+.collapsible-tool-group {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.font-tool-group { order: 2; }
+.table-tool-group { order: 3; }
+.page-tool-group { order: 4; }
+
+.tool-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tool-group-head .tool-group-title {
+  margin-bottom: 0;
+}
+
+.advanced-toggle-btn {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.tool-group-toggle {
+  width: 100%;
+  min-height: 38px;
+  font-size: 12px;
+}
+
+.tool-group-toggle[aria-expanded="true"] {
+  border-color: var(--accent-soft);
+  background: #fff1e2;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.collapsible-tool-content {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.collapsible-tool-content.hidden-tool-content {
+  display: none;
 }
 
 .tool-group-title {
@@ -355,6 +469,43 @@ body {
 .style-tools select {
   min-width: 180px;
   flex: 1;
+}
+
+.alignment-icon-btn {
+  width: 34px;
+  min-width: 34px;
+  padding: 7px;
+}
+
+.align-icon {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 18px;
+}
+
+.align-icon i {
+  display: block;
+  width: 100%;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.align-icon i:nth-child(even) {
+  width: 68%;
+}
+
+.align-center i:nth-child(even) {
+  margin-inline: auto;
+}
+
+.align-right i:nth-child(even) {
+  margin-left: auto;
+}
+
+.align-justify i:nth-child(even) {
+  width: 100%;
 }
 
 .fallback-file-btn {
@@ -700,7 +851,17 @@ code {
   }
 
   .toolbar-groups {
-    grid-template-columns: 1fr;
+    display: flex;
+  }
+
+  .font-tool-group,
+  .table-tool-group,
+  .page-tool-group {
+    flex-basis: 100%;
+  }
+
+  .toolbar-wrap {
+    height: auto !important;
   }
 
   .fallback-file-btn.is-visible {

@@ -10,7 +10,10 @@
   <div class="app-shell" id="appShell">
     <aside class="sidebar" id="leftSidebar" aria-label="左侧功能区">
       <div class="sidebar-toggle-strip">
-        <button id="sidebarToggleBtn" class="chrome-toggle" type="button" aria-controls="leftSidebar" aria-expanded="true">隐藏左侧</button>
+        <button id="sidebarToggleBtn" class="chrome-toggle" type="button" aria-controls="leftSidebar" aria-expanded="true" title="点击折叠；在此处滚轮调整左侧宽度">隐藏左侧</button>
+      </div>
+      <div class="operation-status-panel" aria-live="polite" aria-label="操作状态">
+        <span id="operationStatusText">准备就绪</span>
       </div>
       <div class="panel quick-actions-panel">
         <div class="panel-head">
@@ -49,6 +52,12 @@
         <p id="resourceStatusText" class="resource-status"></p>
       </div>
       <div class="panel">
+      <div class="panel compact-action-panel history-panel">
+        <button id="historyPanelBtn" class="ghost-btn" type="button">历史/常用</button>
+      </div>
+      <div class="panel compact-action-panel shortcuts-panel">
+        <button id="shortcutSettingsBtn" class="ghost-btn" type="button">快捷键设置</button>
+      </div>
         <div class="panel-head">
           <h2>导航</h2>
         </div>
@@ -70,34 +79,17 @@
         </div>
         <nav id="secondaryOutline" class="outline secondary-outline"></nav>
       </div>
-
-      <div class="panel history-panel">
-        <div class="panel-head">
-          <h2>历史/常用</h2>
-          <button id="historyPanelBtn" class="ghost-btn" type="button">打开</button>
-        </div>
-        <p class="shortcut-summary">查看最近打开与常用目录，并浏览目录中的 DOCX 文件。</p>
-      </div>
-
-      <div class="panel shortcuts-panel">
-        <div class="panel-head">
-          <h2>快捷键</h2>
-          <button id="shortcutSettingsBtn" class="ghost-btn" type="button">设置</button>
-        </div>
-        <p class="shortcut-summary">在弹窗中管理快捷键，避免侧栏过长。</p>
-      </div>
     </aside>
 
     <main class="workspace">
       <header class="toolbar-wrap" id="topToolbar">
-        <div class="toolbar-control-row">
-          <button id="toolbarToggleBtn" class="chrome-toggle" type="button" aria-controls="topToolbar" aria-expanded="true">隐藏上方</button>
-        </div>
-
         <div class="toolbar-groups">
-          <section class="tool-group">
-            <p class="tool-group-title">字体</p>
-            <div class="toolbar-row dense">
+          <section class="tool-group font-tool-group collapsible-tool-group">
+            <div class="tool-group-head">
+              <button id="fontAdvancedToggle" class="advanced-toggle-btn tool-group-toggle" data-label="字体" type="button" aria-controls="fontAdvancedContent" aria-expanded="false">字体</button>
+            </div>
+            <div id="fontAdvancedContent" class="collapsible-tool-content hidden-tool-content">
+              <div class="toolbar-row dense">
               <select id="fontFamily">
                 <option>Georgia</option>
                 <option>Calibri</option>
@@ -127,11 +119,11 @@
               <button id="applyHighlightBtn" type="button">底色</button>
               <button id="clearFormatBtn" type="button">清除格式</button>
               <button id="formatPainterBtn" type="button">格式刷</button>
+              </div>
             </div>
           </section>
 
-          <section class="tool-group">
-            <p class="tool-group-title">段落</p>
+          <section class="tool-group paragraph-tool-group">
             <div class="toolbar-row dense">
               <div class="style-tools">
                 <select id="paragraphStyleSelect"></select>
@@ -156,16 +148,21 @@
                 <input id="spaceAfterInput" type="number" min="0" step="1" value="0">
               </label>
 
-              <button data-align="justifyLeft" type="button">左对齐</button>
-              <button data-align="justifyCenter" type="button">居中</button>
-              <button data-align="justifyRight" type="button">右对齐</button>
-              <button data-align="justifyFull" type="button">两端对齐</button>
-              <button id="resetParagraphSpacingBtn" type="button">重置间距</button>
+              <button class="alignment-icon-btn" data-align="justifyLeft" type="button" title="左对齐" aria-label="左对齐">
+                <span class="align-icon align-left" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+              </button>
+              <button class="alignment-icon-btn" data-align="justifyCenter" type="button" title="居中" aria-label="居中">
+                <span class="align-icon align-center" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+              </button>
+              <button class="alignment-icon-btn" data-align="justifyRight" type="button" title="右对齐" aria-label="右对齐">
+                <span class="align-icon align-right" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+              </button>
+              <button class="alignment-icon-btn" data-align="justifyFull" type="button" title="两端对齐" aria-label="两端对齐">
+                <span class="align-icon align-justify" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+              </button>
 
               <div class="numbering-tools">
                 <button id="toggleNumberingBtn" type="button">编号</button>
-                <button id="numberLevelUpBtn" type="button">升级</button>
-                <button id="numberLevelDownBtn" type="button">降级</button>
                 <select id="numberFormatSelect">
                   <option value="decimal">1, 2, 3</option>
                   <option value="upperLetter">A, B, C</option>
@@ -177,37 +174,43 @@
             </div>
           </section>
 
-          <section class="tool-group">
-            <p class="tool-group-title">表格</p>
-            <div class="toolbar-row dense">
-              <button id="insertTableBtn" type="button">插入表格</button>
-              <button id="addRowBtn" type="button">加行</button>
-              <button id="removeRowBtn" type="button">删行</button>
-              <button id="addColBtn" type="button">加列</button>
-              <button id="removeColBtn" type="button">删列</button>
-              <button id="deleteTableBtn" type="button">删表</button>
+          <section class="tool-group table-tool-group collapsible-tool-group">
+            <div class="tool-group-head">
+              <button id="tableAdvancedToggle" class="advanced-toggle-btn tool-group-toggle" data-label="表格" type="button" aria-controls="tableAdvancedContent" aria-expanded="false">表格</button>
+            </div>
+            <div id="tableAdvancedContent" class="collapsible-tool-content hidden-tool-content">
+              <div class="toolbar-row dense">
+                <button id="insertTableBtn" type="button">插入表格</button>
+                <button id="addRowBtn" type="button">加行</button>
+                <button id="removeRowBtn" type="button">删行</button>
+                <button id="addColBtn" type="button">加列</button>
+                <button id="removeColBtn" type="button">删列</button>
+                <button id="deleteTableBtn" type="button">删表</button>
+              </div>
             </div>
           </section>
 
-          <section class="tool-group">
-            <p class="tool-group-title">页面</p>
-            <div class="toolbar-row dense">
-              <select id="pageSizeSelect">
-                <option value="A4">A4 (210 x 297mm)</option>
-                <option value="Letter">Letter (216 x 279mm)</option>
-                <option value="Custom">自定义</option>
-              </select>
-              <label class="inline-field">
-                宽 (mm)
-                <input id="pageWidthInput" type="number" min="50" step="1" value="210">
-              </label>
-              <label class="inline-field">
-                高 (mm)
-                <input id="pageHeightInput" type="number" min="50" step="1" value="297">
-              </label>
-              <button id="applyPageSizeBtn" type="button">应用</button>
+          <section class="tool-group page-tool-group collapsible-tool-group">
+            <div class="tool-group-head">
+              <button id="pageAdvancedToggle" class="advanced-toggle-btn tool-group-toggle" data-label="页面" type="button" aria-controls="pageAdvancedContent" aria-expanded="false">页面</button>
+            </div>
+            <div id="pageAdvancedContent" class="collapsible-tool-content hidden-tool-content">
+              <div class="toolbar-row dense">
+                <label class="inline-field">
+                  宽 (mm)
+                  <input id="pageWidthInput" type="number" min="50" step="1" value="210">
+                </label>
+                <label class="inline-field">
+                  高 (mm)
+                  <input id="pageHeightInput" type="number" min="50" step="1" value="297">
+                </label>
+                <button id="applyPageSizeBtn" type="button">应用</button>
+              </div>
             </div>
           </section>
+          <div class="toolbar-control-row">
+            <button id="toolbarToggleBtn" class="chrome-toggle" type="button" aria-controls="topToolbar" aria-expanded="true" title="点击折叠；在此处滚轮调整顶部高度">隐藏上方</button>
+          </div>
         </div>
       </header>
 
@@ -216,7 +219,7 @@
       </section>
 
       <footer class="statusbar">
-        <span id="statusText">准备就绪</span>
+        <span id="statusText">当前文件：尚未保存</span>
         <span>本地服务地址：<code id="serverAddress"></code></span>
       </footer>
     </main>
