@@ -913,6 +913,322 @@ code {
   font-family: Consolas, monospace;
 }
 
+/* Cyberpunk visual layer. Document content stays paper-like for WYSIWYG fidelity. */
+:root {
+  --bg: #080711;
+  --bg-alt: #100b1d;
+  --panel: rgba(17, 12, 31, 0.88);
+  --panel-strong: rgba(24, 17, 42, 0.96);
+  --surface: #211932;
+  --ink: #eeeaff;
+  --muted: #9e96b5;
+  --accent: #21dff3;
+  --accent-soft: #8a4dff;
+  --accent-pink: #ff3ca6;
+  --line: rgba(93, 224, 246, 0.22);
+  --paper: #fbfaff;
+  --document-ink: #181521;
+  --shadow: 0 18px 46px rgba(0, 0, 0, 0.42), 0 0 24px rgba(64, 207, 255, 0.08);
+  --glow-cyan: 0 0 0 1px rgba(33, 223, 243, 0.28), 0 0 20px rgba(33, 223, 243, 0.16);
+  --glow-purple: 0 0 0 1px rgba(138, 77, 255, 0.34), 0 0 22px rgba(138, 77, 255, 0.18);
+}
+
+body {
+  color: var(--ink);
+  background:
+    linear-gradient(rgba(33, 223, 243, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(33, 223, 243, 0.035) 1px, transparent 1px),
+    radial-gradient(circle at 12% 8%, rgba(138, 77, 255, 0.24), transparent 30%),
+    radial-gradient(circle at 88% 92%, rgba(33, 223, 243, 0.17), transparent 32%),
+    linear-gradient(145deg, #070610 0%, #10091d 52%, #07131a 100%);
+  background-size: 34px 34px, 34px 34px, auto, auto, auto;
+  font-family: Bahnschrift, "Microsoft YaHei UI", "Segoe UI", sans-serif;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+  opacity: 0.2;
+  background: repeating-linear-gradient(180deg, transparent 0 3px, rgba(117, 241, 255, 0.045) 4px);
+  mix-blend-mode: screen;
+}
+
+* {
+  scrollbar-color: rgba(33, 223, 243, 0.55) rgba(13, 10, 24, 0.6);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(13, 10, 24, 0.72);
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid rgba(13, 10, 24, 0.8);
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-soft));
+}
+
+.panel,
+.toolbar-wrap,
+.statusbar,
+.modal-panel {
+  position: relative;
+  border-color: var(--line);
+  background:
+    linear-gradient(135deg, rgba(33, 223, 243, 0.045), transparent 42%),
+    linear-gradient(315deg, rgba(138, 77, 255, 0.08), transparent 48%),
+    var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px) saturate(130%);
+}
+
+.panel::before,
+.toolbar-wrap:not(.is-collapsed)::before,
+.modal-panel::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 18px;
+  width: 72px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--accent-soft), transparent);
+  box-shadow: 0 0 12px rgba(33, 223, 243, 0.62);
+  animation: cyber-flow 4.8s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+.panel h2,
+.tool-group-title,
+.history-section h3 {
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 12px rgba(33, 223, 243, 0.35);
+}
+
+.operation-status-panel,
+.resource-metric,
+.history-item,
+.tool-group,
+.collapsible-tool-content {
+  border-color: rgba(104, 92, 148, 0.5);
+  background: linear-gradient(145deg, rgba(39, 29, 58, 0.9), rgba(19, 14, 34, 0.92));
+  color: var(--ink);
+}
+
+.operation-status-panel {
+  box-shadow: inset 3px 0 0 var(--accent-pink), 0 0 16px rgba(255, 60, 166, 0.08);
+}
+
+.resource-metric strong,
+.resource-detail,
+#serverAddress,
+code {
+  color: var(--accent);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  text-shadow: 0 0 9px rgba(33, 223, 243, 0.28);
+}
+
+button,
+select,
+.file-btn,
+.inline-field input,
+.shortcut-item input {
+  border-color: rgba(116, 97, 164, 0.62);
+  background: linear-gradient(145deg, rgba(43, 32, 64, 0.96), rgba(24, 18, 40, 0.96));
+  color: var(--ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+select option {
+  background: #171126;
+  color: var(--ink);
+}
+
+button:hover,
+select:hover,
+.file-btn:hover,
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  border-color: var(--accent);
+  background: linear-gradient(145deg, rgba(27, 67, 83, 0.98), rgba(35, 22, 58, 0.98));
+  color: #f7feff;
+  box-shadow: var(--glow-cyan);
+  outline: none;
+}
+
+button:hover,
+.file-btn:hover {
+  transform: translateY(-1px);
+}
+
+button:active,
+.file-btn:active {
+  transform: translateY(0);
+}
+
+.quick-actions-grid > button,
+.quick-actions-grid > .file-btn {
+  border-color: rgba(33, 223, 243, 0.45);
+  background: linear-gradient(135deg, rgba(17, 85, 105, 0.8), rgba(58, 27, 99, 0.88));
+}
+
+.ghost-btn {
+  background: rgba(19, 14, 34, 0.72);
+}
+
+.is-active,
+.tool-group-toggle[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, rgba(20, 95, 111, 0.92), rgba(83, 36, 133, 0.94));
+  color: #f3fdff;
+  box-shadow: var(--glow-cyan);
+}
+
+.outline-item {
+  position: relative;
+  color: var(--muted);
+}
+
+.outline-item:hover {
+  color: var(--accent);
+  text-shadow: 0 0 10px rgba(33, 223, 243, 0.46);
+}
+
+.outline-item.is-active {
+  padding-left: 12px;
+  color: #ffffff;
+  text-shadow: 0 0 10px var(--accent);
+}
+
+.outline-item.is-active::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  width: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent), 0 0 18px var(--accent-soft);
+}
+
+.outline-filter input {
+  accent-color: var(--accent);
+}
+
+.outline-level-btn {
+  border-color: rgba(33, 223, 243, 0.35);
+  background: rgba(20, 17, 35, 0.9);
+  color: var(--accent);
+}
+
+.align-icon i {
+  box-shadow: 0 0 5px currentColor;
+}
+
+.page-stage {
+  border: 1px solid rgba(33, 223, 243, 0.16);
+  background:
+    linear-gradient(rgba(33, 223, 243, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(33, 223, 243, 0.045) 1px, transparent 1px),
+    radial-gradient(circle at 50% 0%, rgba(138, 77, 255, 0.2), transparent 48%),
+    rgba(8, 8, 18, 0.78);
+  background-size: 24px 24px, 24px 24px, auto, auto;
+  box-shadow: inset 0 0 54px rgba(0, 0, 0, 0.42), var(--glow-purple);
+}
+
+.editor {
+  color: var(--document-ink);
+  background:
+    linear-gradient(90deg, rgba(63, 43, 91, 0.025) 1px, transparent 1px),
+    var(--paper);
+  background-size: 28px 28px, auto;
+  border: 1px solid rgba(126, 92, 183, 0.24);
+  box-shadow: 0 28px 64px rgba(0, 0, 0, 0.52), 0 0 28px rgba(138, 77, 255, 0.12);
+}
+
+.editor .numbered-paragraph::before {
+  color: var(--document-ink);
+}
+
+.editor ::selection {
+  color: #100b1c;
+  background: rgba(33, 223, 243, 0.52);
+}
+
+.editor-table td,
+.editor-table th {
+  border-color: rgba(80, 59, 111, 0.32);
+}
+
+.editor-table th {
+  background: rgba(138, 77, 255, 0.08);
+}
+
+.statusbar {
+  border-radius: 14px;
+  color: var(--muted);
+}
+
+#statusText {
+  color: var(--ink);
+}
+
+.modal-backdrop {
+  background: rgba(3, 3, 10, 0.76);
+  backdrop-filter: blur(8px);
+}
+
+.shortcut-item.has-conflict label,
+.shortcut-conflict {
+  color: var(--accent-pink);
+  text-shadow: 0 0 10px rgba(255, 60, 166, 0.3);
+}
+
+@keyframes cyber-flow {
+  from {
+    transform: translateX(0);
+    opacity: 0.55;
+  }
+  to {
+    transform: translateX(52px);
+    opacity: 1;
+  }
+}
+
+@keyframes outline-target-flash {
+  0% {
+    background: rgba(33, 223, 243, 0.32);
+    box-shadow: 0 0 0 6px rgba(33, 223, 243, 0.14), 0 0 22px rgba(138, 77, 255, 0.28);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 0 rgba(33, 223, 243, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @media (max-width: 980px) {
   body {
     height: auto;
