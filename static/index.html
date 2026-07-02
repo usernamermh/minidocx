@@ -40,10 +40,6 @@
       </div>
 
       <div class="panel resource-panel">
-        <div class="panel-head">
-          <h2>资源监控</h2>
-          <button id="cleanResourcesBtn" class="ghost-btn" type="button">清理</button>
-        </div>
         <div class="resource-grid">
           <div class="resource-metric">
             <span class="resource-label">CPU</span>
@@ -53,6 +49,7 @@
             <span class="resource-label">内存</span>
             <strong id="resourceMemoryText">--%</strong>
           </div>
+          <button id="cleanResourcesBtn" class="ghost-btn" type="button">清理</button>
         </div>
         <p id="resourceMemoryDetail" class="resource-detail">-- / -- MB</p>
       </div>
@@ -129,14 +126,16 @@
             </div>
           </section>
 
-          <section class="tool-group paragraph-tool-group">
-            <div class="toolbar-row dense">
-              <div class="style-tools">
-                <select id="paragraphStyleSelect"></select>
-                <button id="saveStyleBtn" type="button">保存样式</button>
-                <button id="updateStyleBtn" type="button">更新样式</button>
-              </div>
+          <section class="tool-group paragraph-item-tool-group style-tool-group" aria-label="样式">
+            <div class="style-tools">
+              <select id="paragraphStyleSelect" aria-label="段落样式"></select>
+              <button id="saveStyleBtn" type="button">保存样式</button>
+              <button id="updateStyleBtn" type="button">更新样式</button>
+            </div>
+          </section>
 
+          <section class="tool-group paragraph-item-tool-group spacing-tool-group" aria-label="段落间距">
+            <div class="toolbar-row dense">
               <select id="lineSpacingSelect">
                 <option value="1">单倍行距</option>
                 <option value="1.5" selected>1.5 倍行距</option>
@@ -153,7 +152,11 @@
                 段后
                 <input id="spaceAfterInput" type="number" min="0" step="1" value="0">
               </label>
+            </div>
+          </section>
 
+          <section class="tool-group paragraph-item-tool-group alignment-tool-group" aria-label="段落对齐">
+            <div class="toolbar-row dense">
               <button class="alignment-icon-btn" data-align="justifyLeft" type="button" title="左对齐" aria-label="左对齐">
                 <span class="align-icon align-left" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
               </button>
@@ -166,17 +169,19 @@
               <button class="alignment-icon-btn" data-align="justifyFull" type="button" title="两端对齐" aria-label="两端对齐">
                 <span class="align-icon align-justify" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
               </button>
+            </div>
+          </section>
 
-              <div class="numbering-tools">
-                <button id="toggleNumberingBtn" type="button">编号</button>
-                <select id="numberFormatSelect">
-                  <option value="decimal">1, 2, 3</option>
-                  <option value="upperLetter">A, B, C</option>
-                  <option value="lowerLetter">a, b, c</option>
-                  <option value="upperRoman">I, II, III</option>
-                  <option value="lowerRoman">i, ii, iii</option>
-                </select>
-              </div>
+          <section class="tool-group paragraph-item-tool-group numbering-tool-group" aria-label="段落编号">
+            <div class="numbering-tools">
+              <button id="toggleNumberingBtn" type="button">编号</button>
+              <select id="numberFormatSelect">
+                <option value="decimal">1, 2, 3</option>
+                <option value="upperLetter">A, B, C</option>
+                <option value="lowerLetter">a, b, c</option>
+                <option value="upperRoman">I, II, III</option>
+                <option value="lowerRoman">i, ii, iii</option>
+              </select>
             </div>
           </section>
 

@@ -117,22 +117,8 @@ body {
 }
 
 .resource-panel .ghost-btn {
-  min-height: 27px;
-  padding: 10px 10px;
-  font-size: 18px;
-  font-family: "SimSun", "宋体", "Times New Roman", Times, serif;
-}
-
-.resource-panel .panel-head {
-  display: flex;             /* 开启弹性布局，让 h2 和 button 在同一行 */
-  align-items: center;       /* 垂直居中对齐 */
-  justify-content: space-between; /* 让标题靠左，按钮靠右（这是最美观的排版） */
-  padding: 10px;             /* 可选：给头部加点内边距，不要紧贴边框 */
-}
-
-.resource-panel .panel-head h2 {
-  margin: 0;                 /* 去掉浏览器默认的 h2 上下边距 */
-  font-size: 16px;           /* 可选：稍微调小一点标题，让整体更协调 */
+  min-height: 30px;
+  padding: 5px 8px;
 }
 
 .quick-actions-panel .panel-head {
@@ -161,27 +147,29 @@ body {
 
 .resource-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 6px;
+  align-items: stretch;
 }
 
 .resource-metric {
   display: flex;
-  align-items: center; /* 核心：让里面的文字垂直居中对齐 */
-  padding: 8px 10px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 5px 7px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.64);
 }
 
 .resource-label {
-  font-size: 20px;
-  font-family: "SimSun", "宋体", "Times New Roman", Times, serif; /* 设置字体 */
-  margin-right: 10px; /* 右边空出 10px 的距离 */
+  font: inherit;
 }
 
 .resource-metric strong {
-  font-size: 16px;
+  font: inherit;
 }
 
 .resource-detail,
@@ -344,15 +332,16 @@ body {
 }
 
 .workspace {
+  position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 14px;
+  gap: 8px;
   min-height: 0;
 }
 
 .toolbar-wrap {
-  padding: 14px;
-  overflow: auto;
+  padding: 7px 10px;
+  overflow: visible;
 }
 
 .toolbar-control-row {
@@ -364,9 +353,22 @@ body {
 }
 
 .toolbar-wrap.is-collapsed {
+  position: fixed;
+  top: 10px;
+  right: 14px;
+  z-index: 100;
+  width: auto;
   height: auto !important;
   overflow: visible;
-  padding: 8px 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.workspace.is-toolbar-collapsed {
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 
 .toolbar-wrap.is-collapsed .toolbar-control-row {
@@ -376,6 +378,7 @@ body {
 .toolbar-wrap.is-collapsed .toolbar-groups {
   display: flex;
   justify-content: flex-end;
+  gap: 0;
 }
 
 .toolbar-wrap.is-collapsed .toolbar-groups > .tool-group {
@@ -395,9 +398,10 @@ body {
 .toolbar-groups {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 8px;
   margin-top: 0;
-  align-items: start;
+  align-items: center;
 }
 
 .tool-group {
@@ -407,15 +411,43 @@ body {
   background: rgba(255, 255, 255, 0.58);
 }
 
-.paragraph-tool-group {
+.paragraph-item-tool-group {
   order: 1;
-  flex: 0 0 100%;
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 6px;
+  border-radius: 12px;
 }
 
 .font-tool-group,
 .table-tool-group,
 .page-tool-group {
-  flex: 0 0 148px;
+  position: relative;
+  flex: 0 0 72px;
+  width: 72px;
+  min-width: 72px;
+  max-width: 72px;
+}
+
+.style-tool-group {
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: 100%;
+}
+
+.spacing-tool-group {
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: 100%;
+}
+
+.alignment-tool-group {
+  flex: 0 0 auto;
+}
+
+.numbering-tool-group {
+  flex: 0 0 auto;
 }
 
 .collapsible-tool-group {
@@ -432,7 +464,7 @@ body {
 .tool-group-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 8px;
 }
 
@@ -450,6 +482,8 @@ body {
 .tool-group-toggle {
   width: 100%;
   min-height: 38px;
+  justify-content: center;
+  text-align: center;
   font-size: 12px;
 }
 
@@ -461,11 +495,24 @@ body {
 }
 
 .collapsible-tool-content {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  z-index: 30;
+  width: max-content;
+  max-width: min(720px, calc(100vw - 32px));
   margin-top: 8px;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.72);
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+}
+
+.toolbar-wrap button {
+  justify-content: center;
+  text-align: center;
 }
 
 .collapsible-tool-content.hidden-tool-content {
@@ -482,12 +529,15 @@ body {
 .style-tools {
   display: flex;
   gap: 10px;
-  min-width: 280px;
+  width: auto;
+  min-width: 0;
 }
 
 .style-tools select {
-  min-width: 180px;
-  flex: 1;
+  flex: 0 0 160px;
+  width: 160px;
+  min-width: 160px;
+  max-width: 160px;
 }
 
 .alignment-icon-btn {
@@ -755,6 +805,26 @@ select:hover,
 
 .numbering-tools select {
   min-width: 120px;
+}
+
+.toolbar-wrap button,
+.toolbar-wrap select {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.toolbar-wrap .inline-field {
+  gap: 5px;
+  padding-right: 3px;
+}
+
+.toolbar-wrap .inline-field input {
+  width: 62px;
+  padding: 5px 8px;
+}
+
+.toolbar-wrap .alignment-icon-btn {
+  padding: 6px;
 }
 
 .modal {

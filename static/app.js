@@ -106,7 +106,7 @@ let secondaryOutlineAvailableMaxLevel = 2;
 const SHORTCUT_STORAGE_KEY = "mini_docx_shortcuts";
 const OUTLINE_FILTER_KEY = "mini_docx_outline_filter";
 const LAYOUT_STORAGE_KEY = "mini_docx_layout";
-const LAYOUT_STRUCTURE_VERSION = 7;
+const LAYOUT_STRUCTURE_VERSION = 9;
 const HANDLE_DB_NAME = "mini_docx_handles";
 const HANDLE_DB_VERSION = 1;
 const STORE_RECENT = "recent_files";
@@ -129,7 +129,7 @@ const MAX_BLOCK_INDENT_LEVEL = 20;
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 520;
 const SIDEBAR_WIDTH_STEP = 16;
-const MIN_TOOLBAR_HEIGHT = 96;
+const MIN_TOOLBAR_HEIGHT = 72;
 const MAX_TOOLBAR_HEIGHT = 420;
 const TOOLBAR_HEIGHT_STEP = 12;
 const ALLOWED_STYLE_ORDER = ["Normal", "NormalL1", "NormalL2", "NormalL3", "Code", "Heading1", "Heading2", "Heading3"];
@@ -195,6 +195,7 @@ function setSidebarCollapsed(collapsed) {
 
 function setToolbarCollapsed(collapsed) {
   topToolbar?.classList.toggle("is-collapsed", collapsed);
+  topToolbar?.parentElement?.classList.toggle("is-toolbar-collapsed", collapsed);
   if (toolbarToggleBtn) {
     toolbarToggleBtn.textContent = collapsed ? "显示上方" : "隐藏上方";
     toolbarToggleBtn.setAttribute("aria-expanded", String(!collapsed));
@@ -208,6 +209,7 @@ function clampLayoutSize(value, minimum, maximum) {
 function setSidebarWidth(width) {
   const nextWidth = clampLayoutSize(width, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
   appShell?.style.setProperty("--sidebar-width", `${nextWidth}px`);
+  requestAnimationFrame(constrainExpandedToolPanels);
   return nextWidth;
 }
 
@@ -280,12 +282,34 @@ function initLayoutToggles() {
   }, { passive: false });
 }
 
+function constrainExpandedToolPanel(content) {
+  if (!content || content.classList.contains("hidden-tool-content") || !topToolbar) return;
+  const toolbarRect = topToolbar.getBoundingClientRect();
+  const inset = 10;
+  const availableWidth = Math.max(0, toolbarRect.width - inset * 2);
+  content.style.maxWidth = `${availableWidth}px`;
+  content.style.transform = "translateX(-50%)";
+
+  const panelRect = content.getBoundingClientRect();
+  const leftLimit = toolbarRect.left + inset;
+  const rightLimit = toolbarRect.right - inset;
+  let shiftX = 0;
+  if (panelRect.left < leftLimit) shiftX += leftLimit - panelRect.left;
+  if (panelRect.right + shiftX > rightLimit) shiftX -= panelRect.right + shiftX - rightLimit;
+  content.style.transform = `translateX(calc(-50% + ${Math.round(shiftX)}px))`;
+}
+
+function constrainExpandedToolPanels() {
+  [fontAdvancedContent, tableAdvancedContent, pageAdvancedContent].forEach(constrainExpandedToolPanel);
+}
+
 function setAdvancedToolGroupExpanded(toggle, content, expanded) {
   if (!toggle || !content) return;
   content.classList.toggle("hidden-tool-content", !expanded);
   toggle.setAttribute("aria-expanded", String(expanded));
   toggle.textContent = toggle.dataset.label || toggle.textContent;
   toggle.title = expanded ? `收起${toggle.textContent}` : `展开${toggle.textContent}`;
+  if (expanded) requestAnimationFrame(() => constrainExpandedToolPanel(content));
 }
 
 function initAdvancedToolGroups() {
@@ -301,6 +325,7 @@ function initAdvancedToolGroups() {
       setAdvancedToolGroupExpanded(toggle, content, expanded);
     });
   });
+  window.addEventListener("resize", () => requestAnimationFrame(constrainExpandedToolPanels));
 }
 
 let numberingListSeed = Date.now();
