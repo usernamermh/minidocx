@@ -15,9 +15,7 @@
 
 ### 双击启动
 
-直接双击 `run_windows.bat`  `MiniDocxTray.exe`。
-
-启动成功后会打开本地地址：`http://127.0.0.1:8765`
+双击 `MiniDocxTray.exe`。
 
 ### 命令行启动
 
