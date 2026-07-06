@@ -29,16 +29,16 @@ for prefix, uri in XML_NS.items():
 
 NUMBER_FORMATS = {"decimal", "upperLetter", "lowerLetter", "upperRoman", "lowerRoman", "bullet"}
 MAX_NUMBERING_LEVEL = 8
+MAX_OUTLINE_LEVEL = 8
 DEFAULT_LATIN_FONT = "Times New Roman"
 DEFAULT_EAST_ASIA_FONT = "SimSun"
 DEFAULT_FONT_FAMILY = f"{DEFAULT_LATIN_FONT}, {DEFAULT_EAST_ASIA_FONT}"
-CODE_FONT_FAMILY = "Consolas, Courier New, monospace"
 DEFAULT_LINE_SPACING = 1.5
 DEFAULT_PARAGRAPH_SPACING = 1
 DEFAULT_PAGE_WIDTH_TWIPS = 11906
 DEFAULT_PAGE_HEIGHT_TWIPS = 16838
 BLOCK_INDENT_STEP_TWIPS = 480
-ALLOWED_STYLE_ORDER = ("Normal", "NormalL1", "NormalL2", "NormalL3", "Code", "Heading1", "Heading2", "Heading3")
+ALLOWED_STYLE_ORDER = ("Normal", "Heading1", "Heading2", "Heading3", "NormalL1", "NormalL2", "NormalL3")
 ALLOWED_STYLE_IDS = set(ALLOWED_STYLE_ORDER)
 STYLE_ALIAS_MAP = {
     "normal": "Normal",
@@ -383,7 +383,7 @@ def _canonical_style_id(value: object) -> str | None:
     compact = re.sub(r"\s+", "", raw).lower()
     lowered = raw.lower()
     if compact == "code":
-        return "Code"
+        return "Normal"
     return STYLE_ALIAS_MAP.get(lowered) or STYLE_ALIAS_MAP.get(compact)
 
 
@@ -508,13 +508,19 @@ def _make_style(
     space_after: int = DEFAULT_PARAGRAPH_SPACING,
     numbering: dict | None = None,
 ) -> dict:
+    try:
+        normalized_outline_level = int(outline_level) if outline_level is not None else None
+    except (TypeError, ValueError):
+        normalized_outline_level = None
+    if normalized_outline_level is not None and not 0 <= normalized_outline_level <= MAX_OUTLINE_LEVEL:
+        normalized_outline_level = None
     return {
         "id": style_id,
         "name": name,
         "type": "paragraph",
         "descriptor": _normalize_descriptor(descriptor),
         "alignment": alignment if alignment in {"left", "center", "right", "justify"} else "left",
-        "outline_level": outline_level if outline_level in {0, 1, 2} else None,
+        "outline_level": normalized_outline_level,
         "is_default": bool(is_default),
         "based_on": based_on or None,
         "line_spacing": _normalize_line_spacing(line_spacing, DEFAULT_LINE_SPACING),
@@ -543,13 +549,12 @@ def _normalize_line_spacing(value: object, fallback: float = DEFAULT_LINE_SPACIN
 def _builtin_styles() -> list[dict]:
     return [
         _make_style("Normal", "Normal", [DEFAULT_FONT_FAMILY, 12, False, False, False], is_default=True),
-        _make_style("NormalL1", "Normal L1", [DEFAULT_FONT_FAMILY, 10, True, False, False], outline_level=3, based_on="Normal"),
-        _make_style("NormalL2", "Normal L2", [DEFAULT_FONT_FAMILY, 10, True, True, False], outline_level=4, based_on="Normal"),
-        _make_style("NormalL3", "Normal L3", [DEFAULT_FONT_FAMILY, 10, True, True, True], outline_level=5, based_on="Normal"),
-        _make_style("Code", "Code", [CODE_FONT_FAMILY, 11, False, False, False], based_on="Normal"),
         _make_style("Heading1", "Heading 1", [DEFAULT_FONT_FAMILY, 20, True, False, False], outline_level=0, based_on="Normal"),
         _make_style("Heading2", "Heading 2", [DEFAULT_FONT_FAMILY, 16, True, False, False], outline_level=1, based_on="Normal"),
         _make_style("Heading3", "Heading 3", [DEFAULT_FONT_FAMILY, 14, True, False, False], outline_level=2, based_on="Normal"),
+        _make_style("NormalL1", "Normal L1", [DEFAULT_FONT_FAMILY, 10, True, False, False], outline_level=3, based_on="Normal"),
+        _make_style("NormalL2", "Normal L2", [DEFAULT_FONT_FAMILY, 10, True, True, False], outline_level=4, based_on="Normal"),
+        _make_style("NormalL3", "Normal L3", [DEFAULT_FONT_FAMILY, 10, True, True, True], outline_level=5, based_on="Normal"),
     ]
 
 
@@ -623,7 +628,7 @@ def _style_ref_for_block(block: dict, styles: dict[str, dict]) -> str:
         "heading1": "Heading1",
         "heading2": "Heading2",
         "heading3": "Heading3",
-        "code": "Code",
+        "code": "Normal",
     }.get(style_key, "Normal")
 
 
@@ -637,8 +642,6 @@ def _style_to_block_style(style: dict | None) -> str:
         return "heading2"
     if outline_level == 2:
         return "heading3"
-    if style.get("id") == "Code":
-        return "code"
     return "normal"
 
 
@@ -979,7 +982,7 @@ def _ensure_docx_paragraph_style(doc, style_info: dict, style_name_by_id: dict[s
     outline_level = style_info.get("outline_level")
     p_pr = style.element.get_or_add_pPr()
     outline_node = p_pr.find(docx_qn("w:outlineLvl"))
-    if outline_level in {0, 1, 2}:
+    if isinstance(outline_level, int) and 0 <= outline_level <= MAX_OUTLINE_LEVEL:
         if outline_node is None:
             outline_node = OxmlElement("w:outlineLvl")
             p_pr.append(outline_node)
@@ -1522,9 +1525,19 @@ def _parse_paragraph_node(
     paragraph_descriptor = _default_descriptor() if clear_imported_format else ((style_info or {}).get("descriptor") or _default_descriptor())
     for run in paragraph.findall(qn("w", "r")):
         descriptor = _descriptor_from_properties(run.find(qn("w", "rPr")), paragraph_descriptor)
-        for text_node in run.findall(qn("w", "t")):
-            runs.append({"text": text_node.text or "", "descriptor": descriptor})
-        for drawing in run.findall(qn("w", "drawing")):
+        for child in run:
+            if child.tag == qn("w", "t"):
+                runs.append({"text": child.text or "", "descriptor": descriptor})
+                continue
+            if child.tag in {qn("w", "br"), qn("w", "cr")}:
+                runs.append({"text": "\n", "descriptor": descriptor})
+                continue
+            if child.tag == qn("w", "tab"):
+                runs.append({"text": "\t", "descriptor": descriptor})
+                continue
+            if child.tag != qn("w", "drawing"):
+                continue
+            drawing = child
             blip = drawing.find(f".//{qn('a', 'blip')}")
             extent = drawing.find(f".//{qn('wp', 'extent')}")
             if blip is None:
@@ -1589,7 +1602,7 @@ def _parse_table_node(
             for paragraph in tc.findall(qn("w", "p")):
                 block, _ = _parse_paragraph_node(paragraph, archive, rel_map, styles_by_id, style_aliases, numbering_by_num_id)
                 if block is not None:
-                    cell_paragraphs.append(block)
+                    cell_paragraphs.extend(_split_paragraph_block_at_breaks(block))
             if not cell_paragraphs:
                 cell_paragraphs.append({"type": "paragraph", "style": "normal", "style_id": "Normal", "style_name": "Normal", "alignment": "align_left", "runs": []})
             width = 2400
@@ -1601,6 +1614,28 @@ def _parse_table_node(
             row_cells.append({"paragraphs": cell_paragraphs, "width": width})
         rows.append(row_cells)
     return {"type": "table", "rows": rows}
+
+
+def _split_paragraph_block_at_breaks(block: dict) -> list[dict]:
+    """Convert imported Word hard breaks into real editor paragraphs."""
+    split_runs: list[list[dict]] = [[]]
+    for run in block.get("runs", []):
+        text = str(run.get("text") or "")
+        pieces = text.split("\n")
+        for index, piece in enumerate(pieces):
+            if piece:
+                split_runs[-1].append({**run, "text": piece})
+            if index < len(pieces) - 1:
+                split_runs.append([])
+
+    if len(split_runs) == 1:
+        return [block]
+
+    paragraphs: list[dict] = []
+    for runs in split_runs:
+        paragraph = {**block, "runs": _merge_runs(runs)}
+        paragraphs.append(paragraph)
+    return paragraphs
 
 
 def docx_bytes_to_document(data: bytes) -> dict:
@@ -1632,7 +1667,7 @@ def docx_bytes_to_document(data: bytes) -> dict:
             if child.tag == qn("w", "p"):
                 block, images = _parse_paragraph_node(child, archive, rel_map, styles_by_id, style_aliases, numbering_by_num_id)
                 if block is not None:
-                    blocks.append(block)
+                    blocks.extend(_split_paragraph_block_at_breaks(block))
                 blocks.extend(images)
             elif child.tag == qn("w", "tbl"):
                 blocks.append(_parse_table_node(child, archive, rel_map, styles_by_id, style_aliases, numbering_by_num_id))

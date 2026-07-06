@@ -11,19 +11,23 @@ const appShell = document.getElementById("appShell");
 const leftSidebar = document.getElementById("leftSidebar");
 const topToolbar = document.getElementById("topToolbar");
 const pageStage = document.getElementById("pageStage");
+const chapterFoldOverlay = document.getElementById("chapterFoldOverlay");
 const outline = document.getElementById("outline");
 const secondaryOutline = document.getElementById("secondaryOutline");
-const secondaryOutlineLessBtn = document.getElementById("secondaryOutlineLessBtn");
-const secondaryOutlineMoreBtn = document.getElementById("secondaryOutlineMoreBtn");
 const secondaryOutlineLevelText = document.getElementById("secondaryOutlineLevelText");
+const primaryOutlineMinSlider = document.getElementById("primaryOutlineMinSlider");
+const primaryOutlineMaxSlider = document.getElementById("primaryOutlineMaxSlider");
+const secondaryOutlineMaxSlider = document.getElementById("secondaryOutlineMaxSlider");
+const primaryOutlineMinText = document.getElementById("primaryOutlineMinText");
+const primaryOutlineMaxText = document.getElementById("primaryOutlineMaxText");
+const secondaryOutlineMaxText = document.getElementById("secondaryOutlineMaxText");
+const primaryOutlineLevelToggles = document.getElementById("primaryOutlineLevelToggles");
 const statusText = document.getElementById("statusText");
 const operationStatusText = document.getElementById("operationStatusText");
 const serverAddress = document.getElementById("serverAddress");
 const openBtn = document.getElementById("openBtn");
 const openDocxInput = document.getElementById("openDocxInput");
-const saveBtn = document.getElementById("saveBtn");
 const exportBtn = document.getElementById("exportBtn");
-const imageInput = document.getElementById("imageInput");
 const fontFamily = document.getElementById("fontFamily");
 const fontSize = document.getElementById("fontSize");
 const highlightColor = document.getElementById("highlightColor");
@@ -31,15 +35,12 @@ const applyHighlightBtn = document.getElementById("applyHighlightBtn");
 const pageWidthInput = document.getElementById("pageWidthInput");
 const pageHeightInput = document.getElementById("pageHeightInput");
 const applyPageSizeBtn = document.getElementById("applyPageSizeBtn");
-const fontAdvancedToggle = document.getElementById("fontAdvancedToggle");
-const fontAdvancedContent = document.getElementById("fontAdvancedContent");
 const tableAdvancedToggle = document.getElementById("tableAdvancedToggle");
 const tableAdvancedContent = document.getElementById("tableAdvancedContent");
 const pageAdvancedToggle = document.getElementById("pageAdvancedToggle");
 const pageAdvancedContent = document.getElementById("pageAdvancedContent");
-const outlineLevel1 = document.getElementById("outlineLevel1");
-const outlineLevel2 = document.getElementById("outlineLevel2");
-const outlineLevel3 = document.getElementById("outlineLevel3");
+const highlightAdvancedToggle = document.getElementById("highlightAdvancedToggle");
+const highlightAdvancedContent = document.getElementById("highlightAdvancedContent");
 const paragraphStyleSelect = document.getElementById("paragraphStyleSelect");
 const lineSpacingSelect = document.getElementById("lineSpacingSelect");
 const spaceBeforeInput = document.getElementById("spaceBeforeInput");
@@ -72,6 +73,18 @@ const resourceMemoryText = document.getElementById("resourceMemoryText");
 const resourceMemoryDetail = document.getElementById("resourceMemoryDetail");
 const resourceStatusText = document.getElementById("resourceStatusText");
 const cleanResourcesBtn = document.getElementById("cleanResourcesBtn");
+const collapseAllChaptersBtn = document.getElementById("collapseAllChaptersBtn");
+const expandAllChaptersBtn = document.getElementById("expandAllChaptersBtn");
+const findReplaceModal = document.getElementById("findReplaceModal");
+const closeFindReplaceBtn = document.getElementById("closeFindReplaceBtn");
+const findTextInput = document.getElementById("findTextInput");
+const replaceTextInput = document.getElementById("replaceTextInput");
+const findCaseSensitive = document.getElementById("findCaseSensitive");
+const findMatchStatus = document.getElementById("findMatchStatus");
+const findPreviousBtn = document.getElementById("findPreviousBtn");
+const findNextBtn = document.getElementById("findNextBtn");
+const replaceCurrentBtn = document.getElementById("replaceCurrentBtn");
+const replaceAllBtn = document.getElementById("replaceAllBtn");
 
 let currentStyles = { paragraph: [] };
 let customShortcuts = {};
@@ -83,7 +96,9 @@ let isDirty = false;
 let isLoadingDocument = false;
 let editorZoom = 1;
 let savedSelectionRange = null;
-let outlineFilter = { 1: true, 2: true, 3: false };
+let outlineFilter = { 0: true, 1: true, 2: true, 3: true };
+let showOtherOutlineBranches = true;
+let outlineConfig = { primaryMin: 0, primaryMax: 3, secondaryMax: 5 };
 let pageSize = { widthTwips: 11906, heightTwips: 16838 };
 let docxMeta = null;
 let stylesDirty = false;
@@ -100,11 +115,11 @@ let primaryOutlineWasManuallySelected = false;
 let activeSecondaryOutlineElement = null;
 let activeSecondaryOutlineBlockIndex = null;
 let secondaryOutlineWasManuallySelected = false;
-let secondaryOutlineMaxLevel = null;
-let secondaryOutlineAvailableMaxLevel = 2;
 
 const SHORTCUT_STORAGE_KEY = "mini_docx_shortcuts";
 const OUTLINE_FILTER_KEY = "mini_docx_outline_filter";
+const OUTLINE_CONFIG_KEY = "mini_docx_outline_config_v3";
+const LEGACY_OUTLINE_CONFIG_KEY = "mini_docx_outline_config_v2";
 const LAYOUT_STORAGE_KEY = "mini_docx_layout";
 const LAYOUT_STRUCTURE_VERSION = 9;
 const HANDLE_DB_NAME = "mini_docx_handles";
@@ -119,7 +134,6 @@ const MAX_EDITOR_HISTORY = 200;
 const NUMBERING_LEVEL_INDENT_PX = 24;
 const MIN_NUMBERING_PREFIX_PX = 18;
 const DEFAULT_FONT_FAMILY = '"Times New Roman", SimSun';
-const CODE_FONT_FAMILY = '"Consolas", "Courier New", monospace';
 const DEFAULT_LINE_SPACING = 1.5;
 const DEFAULT_DOCUMENT_WIDTH_MM = 210;
 const DEFAULT_DOCUMENT_HEIGHT_MM = 297;
@@ -129,10 +143,7 @@ const MAX_BLOCK_INDENT_LEVEL = 20;
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 520;
 const SIDEBAR_WIDTH_STEP = 16;
-const MIN_TOOLBAR_HEIGHT = 72;
-const MAX_TOOLBAR_HEIGHT = 420;
-const TOOLBAR_HEIGHT_STEP = 12;
-const ALLOWED_STYLE_ORDER = ["Normal", "NormalL1", "NormalL2", "NormalL3", "Code", "Heading1", "Heading2", "Heading3"];
+const ALLOWED_STYLE_ORDER = ["Normal", "Heading1", "Heading2", "Heading3", "NormalL1", "NormalL2", "NormalL3"];
 const RESOURCE_REFRESH_MS = 2000;
 const DEFAULT_SHORTCUTS = {
   bold: "Ctrl+B",
@@ -213,12 +224,6 @@ function setSidebarWidth(width) {
   return nextWidth;
 }
 
-function setToolbarHeight(height) {
-  const nextHeight = clampLayoutSize(height, MIN_TOOLBAR_HEIGHT, MAX_TOOLBAR_HEIGHT);
-  if (topToolbar) topToolbar.style.height = `${nextHeight}px`;
-  return nextHeight;
-}
-
 function resizeDirectionFromWheel(event) {
   if (event.deltaY === 0) return 0;
   return event.deltaY < 0 ? 1 : -1;
@@ -227,18 +232,13 @@ function resizeDirectionFromWheel(event) {
 function initLayoutToggles() {
   const state = loadLayoutState();
   const initialSidebarWidth = setSidebarWidth(state.sidebarWidth || leftSidebar?.getBoundingClientRect().width || 300);
-  const naturalToolbarHeight = Math.ceil(topToolbar?.scrollHeight || topToolbar?.getBoundingClientRect().height || MIN_TOOLBAR_HEIGHT);
-  const requestedToolbarHeight = state.layoutVersion === LAYOUT_STRUCTURE_VERSION
-    ? state.toolbarHeight
-    : Math.min(Number(state.toolbarHeight) || naturalToolbarHeight, naturalToolbarHeight);
-  const initialToolbarHeight = setToolbarHeight(requestedToolbarHeight || naturalToolbarHeight);
+  topToolbar?.style.removeProperty("height");
   setSidebarCollapsed(Boolean(state.sidebarCollapsed));
   setToolbarCollapsed(Boolean(state.toolbarCollapsed));
 
   const initialState = {
     ...state,
     sidebarWidth: initialSidebarWidth,
-    toolbarHeight: initialToolbarHeight,
     layoutVersion: LAYOUT_STRUCTURE_VERSION,
   };
   saveLayoutState(initialState);
@@ -271,15 +271,6 @@ function initLayoutToggles() {
     saveLayoutState({ ...loadLayoutState(), sidebarWidth });
   }, { passive: false });
 
-  topToolbar?.querySelector(".toolbar-control-row")?.addEventListener("wheel", (event) => {
-    if (topToolbar.classList.contains("is-collapsed")) return;
-    const direction = resizeDirectionFromWheel(event);
-    if (!direction) return;
-    event.preventDefault();
-    const currentHeight = topToolbar.getBoundingClientRect().height;
-    const toolbarHeight = setToolbarHeight(currentHeight + direction * TOOLBAR_HEIGHT_STEP);
-    saveLayoutState({ ...loadLayoutState(), toolbarHeight });
-  }, { passive: false });
 }
 
 function constrainExpandedToolPanel(content) {
@@ -300,7 +291,27 @@ function constrainExpandedToolPanel(content) {
 }
 
 function constrainExpandedToolPanels() {
-  [fontAdvancedContent, tableAdvancedContent, pageAdvancedContent].forEach(constrainExpandedToolPanel);
+  [highlightAdvancedContent, tableAdvancedContent, pageAdvancedContent].forEach(constrainExpandedToolPanel);
+}
+
+function syncToolbarHeightToExpandedPanel() {
+  if (!topToolbar || topToolbar.classList.contains("is-collapsed")) return;
+  topToolbar.style.removeProperty("height");
+  const expandedContents = [highlightAdvancedContent, tableAdvancedContent, pageAdvancedContent]
+    .filter((content) => content && !content.classList.contains("hidden-tool-content"));
+  if (!expandedContents.length) {
+    topToolbar.classList.remove("has-expanded-tool");
+    return;
+  }
+  topToolbar.classList.add("has-expanded-tool");
+  requestAnimationFrame(() => {
+    const toolbarRect = topToolbar.getBoundingClientRect();
+    const requiredHeight = expandedContents.reduce((height, content) => {
+      const contentRect = content.getBoundingClientRect();
+      return Math.max(height, contentRect.bottom - toolbarRect.top + 12);
+    }, topToolbar.scrollHeight);
+    topToolbar.style.height = `${Math.ceil(requiredHeight)}px`;
+  });
 }
 
 function setAdvancedToolGroupExpanded(toggle, content, expanded) {
@@ -309,19 +320,28 @@ function setAdvancedToolGroupExpanded(toggle, content, expanded) {
   toggle.setAttribute("aria-expanded", String(expanded));
   toggle.textContent = toggle.dataset.label || toggle.textContent;
   toggle.title = expanded ? `收起${toggle.textContent}` : `展开${toggle.textContent}`;
-  if (expanded) requestAnimationFrame(() => constrainExpandedToolPanel(content));
+  requestAnimationFrame(() => {
+    if (expanded) constrainExpandedToolPanel(content);
+    syncToolbarHeightToExpandedPanel();
+  });
 }
 
 function initAdvancedToolGroups() {
-  [
-    [fontAdvancedToggle, fontAdvancedContent],
+  const groups = [
+    [highlightAdvancedToggle, highlightAdvancedContent],
     [tableAdvancedToggle, tableAdvancedContent],
     [pageAdvancedToggle, pageAdvancedContent],
-  ].forEach(([toggle, content]) => {
+  ];
+  groups.forEach(([toggle, content]) => {
     if (!toggle || !content) return;
     setAdvancedToolGroupExpanded(toggle, content, false);
     toggle.addEventListener("click", () => {
       const expanded = toggle.getAttribute("aria-expanded") !== "true";
+      if (expanded) {
+        groups.forEach(([otherToggle, otherContent]) => {
+          if (otherToggle !== toggle) setAdvancedToolGroupExpanded(otherToggle, otherContent, false);
+        });
+      }
       setAdvancedToolGroupExpanded(toggle, content, expanded);
     });
   });
@@ -668,13 +688,14 @@ function supportsFileSystemAccess() {
 
 function updateFileUiState() {
   fallbackFileBtn.classList.toggle("is-visible", !supportsFileSystemAccess());
-  const dirtyPrefix = isDirty ? "*" : "";
-  saveBtn.textContent = currentFileHandle ? `${dirtyPrefix}保存文件` : `${dirtyPrefix}保存文件`;
   document.title = `${isDirty ? "*" : ""}Mini DOCX Web Editor`;
 }
 
 function applyEditorZoom() {
   editor.style.zoom = String(editorZoom);
+  requestAnimationFrame(() => {
+    positionChapterFoldOverlay(Array.from(editor.children).filter(isTopLevelChapterHeading));
+  });
 }
 
 function setEditorZoom(nextZoom) {
@@ -855,18 +876,415 @@ function closeShortcutModal() {
   shortcutModal.classList.add("hidden");
 }
 
+const findReplaceState = {
+  matches: [],
+  currentIndex: -1,
+  query: "",
+  caseSensitive: false,
+};
+let findInputRefreshTimer = null;
+let activeFindHighlightElement = null;
+let pendingDeleteStructure = null;
+
+function clearPersistentFindHighlight() {
+  activeFindHighlightElement?.classList.remove("find-match-active");
+  activeFindHighlightElement = null;
+}
+
+function setPersistentFindHighlight(element) {
+  if (activeFindHighlightElement === element) return;
+  clearPersistentFindHighlight();
+  activeFindHighlightElement = element || null;
+  activeFindHighlightElement?.classList.add("find-match-active");
+}
+
+function decodeFindReplaceText(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\\(r\\n|n|r|t|\\)/g, (match, token) => {
+      if (token === "r\\n" || token === "n" || token === "r") return "\n";
+      if (token === "t") return "\t";
+      return "\\";
+    });
+}
+
+function searchDocumentSnapshot() {
+  const blocks = allBlockElements();
+  const segments = [];
+  let text = "";
+  blocks.forEach((block, index) => {
+    if (index > 0) text += "\n";
+    const blockText = blockPlainTextWithBreaks(block);
+    const start = text.length;
+    text += blockText;
+    segments.push({ block, blockText, start, end: text.length });
+  });
+  return { blocks, segments, text };
+}
+
+function documentMatches(snapshot, query, caseSensitive) {
+  if (!query) return [];
+  const source = caseSensitive ? snapshot.text : snapshot.text.toLocaleLowerCase();
+  const needle = caseSensitive ? query : query.toLocaleLowerCase();
+  const matches = [];
+  let offset = 0;
+  while (offset <= source.length - needle.length) {
+    const index = source.indexOf(needle, offset);
+    if (index < 0) break;
+    matches.push({ start: index, end: index + needle.length });
+    offset = index + Math.max(needle.length, 1);
+  }
+  return matches;
+}
+
+function blockPointAtTextOffset(block, requestedOffset) {
+  let remaining = Math.max(Number(requestedOffset) || 0, 0);
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
+    acceptNode(node) {
+      if (node.nodeType === Node.TEXT_NODE) return NodeFilter.FILTER_ACCEPT;
+      if (node.nodeType === Node.ELEMENT_NODE && node.tagName === "BR" && node.dataset.editorPlaceholder !== "true") {
+        return NodeFilter.FILTER_ACCEPT;
+      }
+      return NodeFilter.FILTER_SKIP;
+    },
+  });
+  let node = walker.nextNode();
+  while (node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const length = node.textContent?.length || 0;
+      if (remaining <= length) return { node, offset: remaining };
+      remaining -= length;
+    } else {
+      const parent = node.parentNode;
+      const index = Array.prototype.indexOf.call(parent.childNodes, node);
+      if (remaining === 0) return { node: parent, offset: index };
+      remaining -= 1;
+      if (remaining === 0) return { node: parent, offset: index + 1 };
+    }
+    node = walker.nextNode();
+  }
+  return { node: block, offset: block.childNodes.length };
+}
+
+function snapshotLocation(snapshot, offset) {
+  let low = 0;
+  let high = snapshot.segments.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const segment = snapshot.segments[middle];
+    if (offset < segment.start) {
+      high = middle - 1;
+    } else if (offset > segment.end) {
+      low = middle + 1;
+    } else {
+      return { ...segment, segmentIndex: middle, localOffset: offset - segment.start };
+    }
+  }
+  if (high >= 0) {
+    const previous = snapshot.segments[high];
+    return {
+      ...previous,
+      segmentIndex: high,
+      localOffset: previous.blockText.length,
+    };
+  }
+  const last = snapshot.segments.at(-1);
+  return last ? {
+    ...last,
+    segmentIndex: snapshot.segments.length - 1,
+    localOffset: last.blockText.length,
+  } : null;
+}
+
+function rangeForDocumentMatch(snapshot, match) {
+  const startLocation = snapshotLocation(snapshot, match.start);
+  const endLocation = snapshotLocation(snapshot, match.end);
+  if (!startLocation || !endLocation) return null;
+  const startPoint = blockPointAtTextOffset(startLocation.block, startLocation.localOffset);
+  const endPoint = blockPointAtTextOffset(endLocation.block, endLocation.localOffset);
+  const range = document.createRange();
+  range.setStart(startPoint.node, startPoint.offset);
+  range.setEnd(endPoint.node, endPoint.offset);
+  return { range, startLocation, endLocation, startPoint, endPoint };
+}
+
+function updateFindMatchStatus(message = "") {
+  if (!findMatchStatus) return;
+  if (message) {
+    findMatchStatus.textContent = message;
+    return;
+  }
+  if (!decodeFindReplaceText(findTextInput?.value)) {
+    findMatchStatus.textContent = "请输入查找内容";
+  } else if (!findReplaceState.matches.length) {
+    findMatchStatus.textContent = "未找到匹配内容";
+  } else {
+    findMatchStatus.textContent = `${findReplaceState.currentIndex + 1} / ${findReplaceState.matches.length}`;
+  }
+}
+
+function highlightFindMatch() {
+  const match = findReplaceState.matches[findReplaceState.currentIndex];
+  if (!match) {
+    updateFindMatchStatus();
+    return false;
+  }
+  const snapshot = searchDocumentSnapshot();
+  const matchRange = rangeForDocumentMatch(snapshot, match);
+  if (!matchRange) return false;
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(matchRange.range);
+  savedSelectionRange = matchRange.range.cloneRange();
+  expandChapterContaining(matchRange.startLocation.block);
+  matchRange.startLocation.block.scrollIntoView({ block: "center", behavior: "smooth" });
+  setPersistentFindHighlight(matchRange.startLocation.block);
+  updateFindMatchStatus();
+  return true;
+}
+
+function refreshFindMatches(preferredIndex = 0) {
+  const query = decodeFindReplaceText(findTextInput?.value);
+  const caseSensitive = Boolean(findCaseSensitive?.checked);
+  const snapshot = searchDocumentSnapshot();
+  findReplaceState.query = query;
+  findReplaceState.caseSensitive = caseSensitive;
+  findReplaceState.matches = documentMatches(snapshot, query, caseSensitive);
+  if (!findReplaceState.matches.length) {
+    findReplaceState.currentIndex = -1;
+  } else {
+    findReplaceState.currentIndex = Math.max(Math.min(preferredIndex, findReplaceState.matches.length - 1), 0);
+  }
+  updateFindMatchStatus();
+}
+
+function moveFindMatch(delta) {
+  const query = decodeFindReplaceText(findTextInput?.value);
+  if (!query) {
+    refreshFindMatches();
+    findTextInput?.focus();
+    return;
+  }
+  if (
+    query !== findReplaceState.query
+    || Boolean(findCaseSensitive?.checked) !== findReplaceState.caseSensitive
+    || !findReplaceState.matches.length
+  ) refreshFindMatches();
+  if (!findReplaceState.matches.length) return;
+  findReplaceState.currentIndex = (
+    findReplaceState.currentIndex + delta + findReplaceState.matches.length
+  ) % findReplaceState.matches.length;
+  highlightFindMatch();
+}
+
+function openFindReplaceModal() {
+  captureEditorSelection();
+  findReplaceModal?.classList.remove("hidden");
+  refreshFindMatches(Math.max(findReplaceState.currentIndex, 0));
+  window.setTimeout(() => {
+    findTextInput?.focus();
+    findTextInput?.select();
+  }, 0);
+}
+
+function closeFindReplaceModal() {
+  findReplaceModal?.classList.add("hidden");
+  clearPersistentFindHighlight();
+  restoreEditorSelection();
+  editor.focus();
+}
+
+function cloneParagraphShell(block) {
+  const clone = block.cloneNode(false);
+  clone.removeAttribute("id");
+  return clone;
+}
+
+function removePlaceholderBreaks(fragment) {
+  fragment.querySelectorAll?.('br[data-editor-placeholder="true"]').forEach((node) => node.remove());
+  return fragment;
+}
+
+function ensureParagraphContent(block) {
+  if (!block.hasChildNodes()) {
+    const placeholder = document.createElement("br");
+    placeholder.dataset.editorPlaceholder = "true";
+    block.appendChild(placeholder);
+  }
+}
+
+function appendReplacementText(block, text, descriptor) {
+  if (!text) return;
+  const span = document.createElement("span");
+  span.textContent = text;
+  applyDescriptorToRun(span, descriptor);
+  block.appendChild(span);
+}
+
+function replaceDocumentMatch(match, replacementText, recordHistory = true, finalize = true) {
+  const snapshot = searchDocumentSnapshot();
+  const located = rangeForDocumentMatch(snapshot, match);
+  if (!located) return false;
+  const { startLocation, endLocation, startPoint } = located;
+  const startBlock = startLocation.block;
+  const endBlock = endLocation.block;
+  if (!startBlock.parentNode || startBlock.parentNode !== endBlock.parentNode) {
+    setStatus("暂不支持跨表格单元格替换。");
+    return false;
+  }
+
+  const parent = startBlock.parentNode;
+  const siblings = Array.from(parent.children);
+  const startSiblingIndex = siblings.indexOf(startBlock);
+  const endSiblingIndex = siblings.indexOf(endBlock);
+  if (startSiblingIndex < 0 || endSiblingIndex < startSiblingIndex) return false;
+
+  const beforeRange = document.createRange();
+  beforeRange.setStart(startBlock, 0);
+  beforeRange.setEnd(startPoint.node, startPoint.offset);
+  const before = removePlaceholderBreaks(beforeRange.cloneContents());
+
+  const endPoint = blockPointAtTextOffset(endBlock, endLocation.localOffset);
+  const afterRange = document.createRange();
+  afterRange.setStart(endPoint.node, endPoint.offset);
+  afterRange.setEnd(endBlock, endBlock.childNodes.length);
+  const after = removePlaceholderBreaks(afterRange.cloneContents());
+
+  const contextNode = startPoint.node.nodeType === Node.TEXT_NODE
+    ? startPoint.node.parentElement
+    : startBlock;
+  const descriptor = descriptorFromStyle(window.getComputedStyle(contextNode || startBlock));
+  const replacementLines = String(replacementText).replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const newBlocks = [];
+
+  if (replacementLines.length === 1) {
+    const block = cloneParagraphShell(startBlock);
+    block.appendChild(before);
+    appendReplacementText(block, replacementLines[0], descriptor);
+    block.appendChild(after);
+    ensureParagraphContent(block);
+    newBlocks.push(block);
+  } else {
+    const first = cloneParagraphShell(startBlock);
+    first.appendChild(before);
+    appendReplacementText(first, replacementLines[0], descriptor);
+    ensureParagraphContent(first);
+    newBlocks.push(first);
+
+    for (let index = 1; index < replacementLines.length - 1; index += 1) {
+      const middle = cloneParagraphShell(startBlock);
+      appendReplacementText(middle, replacementLines[index], descriptor);
+      ensureParagraphContent(middle);
+      newBlocks.push(middle);
+    }
+
+    const last = cloneParagraphShell(endBlock);
+    appendReplacementText(last, replacementLines.at(-1), descriptor);
+    last.appendChild(after);
+    ensureParagraphContent(last);
+    newBlocks.push(last);
+  }
+
+  if (recordHistory) recordUndoSnapshot();
+  const insertion = document.createDocumentFragment();
+  newBlocks.forEach((block) => insertion.appendChild(block));
+  parent.insertBefore(insertion, startBlock);
+  siblings.slice(startSiblingIndex, endSiblingIndex + 1).forEach((block) => block.remove());
+  if (finalize) {
+    markDirty();
+    refreshOutline();
+  }
+  return true;
+}
+
+function replaceInlineDocumentMatch(snapshot, match, replacementText) {
+  const located = rangeForDocumentMatch(snapshot, match);
+  if (!located || located.startLocation.block !== located.endLocation.block) return false;
+  const contextNode = located.range.startContainer.nodeType === Node.TEXT_NODE
+    ? located.range.startContainer.parentElement
+    : located.startLocation.block;
+  const descriptor = descriptorFromStyle(window.getComputedStyle(contextNode || located.startLocation.block));
+  located.range.deleteContents();
+  if (replacementText) {
+    const span = document.createElement("span");
+    span.textContent = replacementText;
+    applyDescriptorToRun(span, descriptor);
+    located.range.insertNode(span);
+  }
+  return true;
+}
+
+function replaceCurrentFindMatch() {
+  const match = findReplaceState.matches[findReplaceState.currentIndex];
+  if (!match) {
+    refreshFindMatches();
+    return;
+  }
+  const replacement = decodeFindReplaceText(replaceTextInput?.value);
+  const nextOffset = match.start + replacement.length;
+  if (!replaceDocumentMatch(match, replacement)) return;
+  refreshFindMatches(0);
+  const nextIndex = findReplaceState.matches.findIndex((item) => item.start >= nextOffset);
+  if (nextIndex >= 0) findReplaceState.currentIndex = nextIndex;
+  highlightFindMatch();
+  setStatus("已替换当前匹配项。");
+}
+
+function replaceAllFindMatches() {
+  const query = decodeFindReplaceText(findTextInput?.value);
+  if (!query) {
+    findTextInput?.focus();
+    return;
+  }
+  refreshFindMatches();
+  const matches = [...findReplaceState.matches];
+  if (!matches.length) return;
+  const replacement = decodeFindReplaceText(replaceTextInput?.value);
+  recordUndoSnapshot();
+  let replaced = 0;
+  const snapshot = searchDocumentSnapshot();
+  const inlineBatch = !replacement.includes("\n") && matches.every((match) => {
+    const start = snapshotLocation(snapshot, match.start);
+    const end = snapshotLocation(snapshot, match.end);
+    return start && end && start.block === end.block;
+  });
+  if (inlineBatch) {
+    for (let index = matches.length - 1; index >= 0; index -= 1) {
+      if (replaceInlineDocumentMatch(snapshot, matches[index], replacement)) replaced += 1;
+    }
+  } else {
+    for (let index = matches.length - 1; index >= 0; index -= 1) {
+      if (replaceDocumentMatch(matches[index], replacement, false, false)) replaced += 1;
+    }
+  }
+  markDirty();
+  refreshOutline();
+  refreshFindMatches();
+  updateFindMatchStatus(`已替换 ${replaced} 处`);
+  setStatus(`已替换 ${replaced} 处。`);
+}
+
+function handleFindShortcut(event) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
+  if (String(event.key || "").toLowerCase() !== "f" && String(event.code || "") !== "KeyF") return false;
+  event.preventDefault();
+  event.stopPropagation();
+  openFindReplaceModal();
+  return true;
+}
+
 function defaultStyles() {
   // 字体族，字号，加粗，斜体，下划线
   return {
     paragraph: [
       { id: "Normal", name: "Normal", descriptor: [DEFAULT_FONT_FAMILY, 12, false, false, false], alignment: "left", outline_level: null, is_default: true, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "NormalL1", name: "Normal L1", descriptor: [DEFAULT_FONT_FAMILY, 10, true, false, false], alignment: "left", outline_level: 3, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "NormalL2", name: "Normal L2", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, false], alignment: "left", outline_level: 4, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "NormalL3", name: "Normal L3", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, true], alignment: "left", outline_level: 5, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "Code", name: "Code", descriptor: [CODE_FONT_FAMILY, 11, false, false, false], alignment: "left", outline_level: null, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
       { id: "Heading1", name: "Heading 1", descriptor: [DEFAULT_FONT_FAMILY, 20, true, false, false], alignment: "left", outline_level: 0, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
       { id: "Heading2", name: "Heading 2", descriptor: [DEFAULT_FONT_FAMILY, 16, true, false, false], alignment: "left", outline_level: 1, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
       { id: "Heading3", name: "Heading 3", descriptor: [DEFAULT_FONT_FAMILY, 14, true, false, false], alignment: "left", outline_level: 2, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "NormalL1", name: "Normal L1", descriptor: [DEFAULT_FONT_FAMILY, 10, true, false, false], alignment: "left", outline_level: 3, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "NormalL2", name: "Normal L2", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, false], alignment: "left", outline_level: 4, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "NormalL3", name: "Normal L3", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, true], alignment: "left", outline_level: 5, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
     ],
   };
 }
@@ -948,7 +1366,7 @@ function styleIdFromBlockStyleKey(key) {
   if (key === "heading1") return "Heading1";
   if (key === "heading2") return "Heading2";
   if (key === "heading3") return "Heading3";
-  if (key === "code") return "Code";
+  if (key === "code") return "Normal";
   return "Normal";
 }
 
@@ -965,7 +1383,6 @@ function blockStyleKey(style) {
   if (style.outline_level === 0) return "heading1";
   if (style.outline_level === 1) return "heading2";
   if (style.outline_level === 2) return "heading3";
-  if (style.id === "Code") return "code";
   return "normal";
 }
 
@@ -1061,13 +1478,13 @@ function captureFormatPainter() {
     alignment: block.style.textAlign || window.getComputedStyle(block).textAlign || "left",
     metrics: paragraphMetricsFromElement(block),
   };
-  formatPainterBtn.classList.add("is-active");
+  formatPainterBtn?.classList.add("is-active");
   setStatus("格式刷已开启，请点击目标段落。");
 }
 
 function clearFormatPainter() {
   formatPainterPayload = null;
-  formatPainterBtn.classList.remove("is-active");
+  formatPainterBtn?.classList.remove("is-active");
 }
 
 function applyFormatPainterToBlock(block) {
@@ -1155,19 +1572,11 @@ function updateBlockIndent(delta) {
     setStatus("请先选中段落。");
     return;
   }
-  const codeBlocks = blocks.filter((block) => {
-    const styleId = block.dataset.styleId || styleIdFromTag(block.tagName);
-    return styleId === "Code";
-  });
-  if (!codeBlocks.length) {
-    setStatus("只有 Code 样式支持该缩进快捷键。");
-    return;
-  }
   recordUndoSnapshot();
-  codeBlocks.forEach((block) => applyBlockIndent(block, indentLevelFromElement(block) + delta));
+  blocks.forEach((block) => applyBlockIndent(block, indentLevelFromElement(block) + delta));
   markDirty();
   refreshOutline();
-  setStatus(`已更新 Code 段落缩进（${codeBlocks.length} 段）。`);
+  setStatus(`已更新段落缩进（${blocks.length} 段）。`);
 }
 
 function applyCurrentParagraphMetrics() {
@@ -1222,11 +1631,6 @@ function toBase64(file) {
   });
 }
 
-function insertImage(dataUrl, name) {
-  const html = `<p><img src="${dataUrl}" alt="${name}" data-name="${name}"></p>`;
-  exec("insertHTML", html);
-}
-
 function replaceTag(element, tagName) {
   if (element.tagName === tagName) return element;
   const replacement = document.createElement(tagName.toLowerCase());
@@ -1234,6 +1638,9 @@ function replaceTag(element, tagName) {
   replacement.innerHTML = element.innerHTML;
   replacement.style.cssText = element.style.cssText;
   element.replaceWith(replacement);
+  if (activePrimaryOutlineElement === element) activePrimaryOutlineElement = replacement;
+  if (activeSecondaryOutlineElement === element) activeSecondaryOutlineElement = replacement;
+  if (activeFindHighlightElement === element) activeFindHighlightElement = replacement;
   return replacement;
 }
 
@@ -1570,7 +1977,7 @@ function numberingFromElement(element) {
 }
 
 function paragraphElementsInEditor() {
-  return Array.from(editor.querySelectorAll("p, h1, h2, h3, div"));
+  return Array.from(editor.querySelectorAll("p, h1, h2, h3"));
 }
 
 function alphaIndex(value, upper = false) {
@@ -2028,19 +2435,25 @@ function applyFontSizeToBlock(block, pointSize) {
 
 function syncStyledRunsForStyleUpdate(block, previousDescriptor, nextDescriptor) {
   if (!block) return;
+  const descriptorWithoutBackground = cloneDescriptor(nextDescriptor);
+  descriptorWithoutBackground[5] = "";
   const runs = inlineStyledRuns(block);
   if (!runs.length) {
     Array.from(block.childNodes).forEach((node) => {
       if (node.nodeType !== Node.TEXT_NODE || !node.textContent) return;
       const span = document.createElement("span");
       span.textContent = node.textContent;
-      applyDescriptorToRun(span, nextDescriptor);
+      applyDescriptorToRun(span, descriptorWithoutBackground);
       node.replaceWith(span);
     });
     return;
   }
   runs.forEach((run) => {
-    applyDescriptorToRun(run, nextDescriptor);
+    const preservedBackground = normalizeBackgroundColor(
+      run.style.backgroundColor || window.getComputedStyle(run).backgroundColor,
+    );
+    applyDescriptorToRun(run, descriptorWithoutBackground);
+    if (preservedBackground) run.style.backgroundColor = preservedBackground;
   });
 }
 
@@ -2138,42 +2551,25 @@ function currentBlockElement() {
   let node = range.startContainer;
   if (!node) return null;
   if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
-  return node && node.closest ? node.closest("p, h1, h2, h3, div") : null;
+  const block = node && node.closest ? node.closest("p, h1, h2, h3") : null;
+  return block && nodeInEditor(block) ? block : null;
 }
 
 function blockElementFromNode(node) {
   if (!node) return null;
   let target = node;
   if (target.nodeType === Node.TEXT_NODE) target = target.parentNode;
-  return target && target.closest ? target.closest("p, h1, h2, h3, div") : null;
+  const block = target && target.closest ? target.closest("p, h1, h2, h3") : null;
+  return block && nodeInEditor(block) ? block : null;
 }
 
 function collectBlocksBetween(startBlock, endBlock) {
   if (!startBlock || !endBlock || !nodeInEditor(startBlock) || !nodeInEditor(endBlock)) return [];
-  let start = startBlock;
-  let end = endBlock;
-  const position = start.compareDocumentPosition(end);
-  if (position & Node.DOCUMENT_POSITION_PRECEDING) {
-    start = endBlock;
-    end = startBlock;
-  }
-  const blocks = [];
-  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_ELEMENT, {
-    acceptNode(node) {
-      return ["P", "H1", "H2", "H3", "DIV"].includes(node.tagName)
-        ? NodeFilter.FILTER_ACCEPT
-        : NodeFilter.FILTER_SKIP;
-    },
-  });
-  let current = walker.nextNode();
-  let collecting = false;
-  while (current) {
-    if (current === start) collecting = true;
-    if (collecting) blocks.push(current);
-    if (current === end) break;
-    current = walker.nextNode();
-  }
-  return blocks;
+  const blocks = allBlockElements();
+  const startIndex = blocks.indexOf(startBlock);
+  const endIndex = blocks.indexOf(endBlock);
+  if (startIndex < 0 || endIndex < 0) return [];
+  return blocks.slice(Math.min(startIndex, endIndex), Math.max(startIndex, endIndex) + 1);
 }
 
 function selectedBlockElements() {
@@ -2181,8 +2577,9 @@ function selectedBlockElements() {
   const selection = window.getSelection();
   if (!selection || !selection.rangeCount) {
     debugLog("prefix:selectedBlocks:none", { reason: "no-selection-or-range" });
-    return [];
-  }
+  return [];
+}
+
   if (selection.isCollapsed) {
     const block = currentBlockElement();
     const result = block ? [block] : [];
@@ -2225,7 +2622,7 @@ function selectedBlockElements() {
       return between;
     }
   }
-  const selected = Array.from(editor.querySelectorAll("p, h1, h2, h3, div")).filter((block) => {
+  const selected = Array.from(editor.querySelectorAll("p, h1, h2, h3")).filter((block) => {
     try {
       return range.intersectsNode(block);
     } catch {
@@ -2254,6 +2651,7 @@ function selectedBlockElements() {
 
 function blockPlainTextWithBreaks(block) {
   if (!block) return "";
+  if (block.childNodes.length === 1 && block.firstChild?.nodeName === "BR") return "";
   const lines = [];
   let currentLine = "";
 
@@ -2271,6 +2669,7 @@ function blockPlainTextWithBreaks(block) {
       return;
     }
     if (node.tagName === "BR") {
+      if (node.dataset.editorPlaceholder === "true") return;
       flushLine();
       return;
     }
@@ -2303,12 +2702,14 @@ function setBlockPlainTextWithBreaks(block, text) {
     }
   });
   if (!normalized || normalized.endsWith("\n")) {
-    block.appendChild(document.createElement("br"));
+    const placeholder = document.createElement("br");
+    placeholder.dataset.editorPlaceholder = "true";
+    block.appendChild(placeholder);
   }
 }
 
 function adjustSelectedBlockLinePrefixes(mode) {
-  const blocks = selectedBlockElements().filter((block) => ["P", "H1", "H2", "H3", "DIV"].includes(block.tagName));
+  const blocks = selectedBlockElements().filter((block) => ["P", "H1", "H2", "H3"].includes(block.tagName));
   debugLog("prefix:adjust:start", {
     mode,
     blockCount: blocks.length,
@@ -2438,22 +2839,10 @@ function adjustSelectedBlockLinePrefixes(mode) {
     if (editingShortcut) return false;
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
     if (String(event.key || "").toLowerCase() !== "s" && String(event.code || "") !== "KeyS") return false;
-    debugLog("save:shortcut-match", {
-      source,
-      key: event.key,
-      code: event.code,
-      keyCode: Number(event.keyCode || event.which || 0),
-      ctrlKey: event.ctrlKey,
-      metaKey: event.metaKey,
-      shiftKey: event.shiftKey,
-      altKey: event.altKey,
-      targetTag: target?.tagName || null,
-    });
+    debugLog("save:shortcut-match", { source, key: event.key, code: event.code });
     event.preventDefault();
     event.stopPropagation();
-    Promise.resolve(saveDocx({ interactive: false, allowPicker: true })).catch((error) => {
-      handleAsyncError(error);
-    });
+    Promise.resolve(saveDocx({ interactive: false, allowPicker: true })).catch(handleAsyncError);
     return true;
   }
 
@@ -2579,6 +2968,52 @@ function normalizeEditorStructure() {
   });
 }
 
+function captureDeleteStructure() {
+  return Array.from(editor.children)
+    .filter((element) => ["P", "H1", "H2", "H3"].includes(element.tagName))
+    .map((element) => ({
+      element,
+      styleId: element.dataset.styleId || styleIdFromTag(element.tagName),
+      text: element.textContent || "",
+      wasEmpty: !(element.textContent || "").trim(),
+    }));
+}
+
+function restoreStyleAfterDeletedHeading(snapshot) {
+  if (!snapshot?.length) return;
+  for (let index = 0; index < snapshot.length - 1; index += 1) {
+    const headingState = snapshot[index];
+    const nextState = snapshot[index + 1];
+    const headingStyle = getStyleById(headingState.styleId);
+    if (headingStyle?.outline_level !== 0) continue;
+    if (!headingState.element.isConnected || nextState.element.isConnected) continue;
+
+    const currentText = headingState.element.textContent || "";
+    const nextText = nextState.text || "";
+    const headingWasFullyRemoved = headingState.wasEmpty
+      || (currentText === nextText && currentText !== headingState.text);
+    if (!headingWasFullyRemoved || currentText !== nextText) continue;
+
+    const nextStyle = getStyleById(nextState.styleId) || getStyleById("Normal");
+    const restored = applyStyleVisuals(headingState.element, nextStyle);
+    debugLog("delete:restore-following-style", {
+      deletedStyleId: headingState.styleId,
+      restoredStyleId: nextStyle?.id || "Normal",
+      textLength: currentText.length,
+    });
+    if (restored) moveCaretToBlockStart(restored);
+    break;
+  }
+}
+
+function handleEditorInput() {
+  const deleteSnapshot = pendingDeleteStructure;
+  pendingDeleteStructure = null;
+  if (deleteSnapshot) restoreStyleAfterDeletedHeading(deleteSnapshot);
+  refreshOutline();
+  markDirty();
+}
+
 function slugify(text, fallback) {
   const slug = text
     .toLowerCase()
@@ -2596,6 +3031,136 @@ function flashOutlineTarget(target) {
   window.setTimeout(() => {
     target.classList.remove("outline-target-flash");
   }, 1600);
+}
+
+function outlineLevelForElement(element) {
+  if (!element || !["P", "H1", "H2", "H3"].includes(element.tagName)) return null;
+  const styleId = element.dataset.styleId || styleIdFromTag(element.tagName);
+  const style = getStyleById(styleId);
+  const fallback = /^H[1-3]$/.test(element.tagName) ? Number(element.tagName.slice(1)) - 1 : null;
+  const level = style?.outline_level;
+  return level !== null && level !== undefined && Number.isFinite(Number(level)) ? Number(level) : fallback;
+}
+
+function isTopLevelChapterHeading(element) {
+  return outlineLevelForElement(element) === 0;
+}
+
+function directEditorChildForNode(node) {
+  let element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+  while (element && element.parentElement !== editor) element = element.parentElement;
+  return element?.parentElement === editor ? element : null;
+}
+
+function chapterHeadingForElement(element) {
+  const directChild = directEditorChildForNode(element);
+  if (!directChild) return null;
+  const children = Array.from(editor.children);
+  for (let index = children.indexOf(directChild); index >= 0; index -= 1) {
+    if (isTopLevelChapterHeading(children[index])) return children[index];
+  }
+  return null;
+}
+
+function createChapterFoldToggle(heading) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "chapter-fold-toggle";
+  button.dataset.editorUi = "true";
+  button.tabIndex = -1;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const collapsing = heading.dataset.chapterCollapsed !== "true";
+    if (collapsing) {
+      const selectionChild = directEditorChildForNode(window.getSelection()?.anchorNode);
+      if (selectionChild && chapterHeadingForElement(selectionChild) === heading && selectionChild !== heading) {
+        moveCaretToBlockStart(heading);
+      }
+    }
+    heading.dataset.chapterCollapsed = collapsing ? "true" : "false";
+    applyChapterFolding();
+    setStatus(collapsing ? "已折叠章节。" : "已展开章节。");
+  });
+  const collapsed = heading.dataset.chapterCollapsed === "true";
+  button.setAttribute("aria-label", collapsed ? "展开章节" : "折叠章节");
+  button.title = collapsed ? "展开章节" : "折叠章节";
+  button.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  button.classList.toggle("is-collapsed", collapsed);
+  return button;
+}
+
+function removeLegacyChapterFoldControls() {
+  editor.querySelectorAll(".chapter-fold-toggle, [data-editor-ui='true']").forEach((control) => {
+    const heading = directEditorChildForNode(control);
+    control.remove();
+    if (!heading || heading.textContent.trim()) return;
+    const breaks = Array.from(heading.children).filter((child) => child.tagName === "BR");
+    if (breaks.length <= 1) return;
+    breaks.slice(1).forEach((lineBreak) => lineBreak.remove());
+    breaks[0].dataset.editorPlaceholder = "true";
+  });
+}
+
+function normalizeEmptyChapterHeading(heading) {
+  if (heading.textContent.trim()) return;
+  const breaks = Array.from(heading.children).filter((child) => child.tagName === "BR");
+  if (breaks.length <= 1) return;
+  breaks.slice(1).forEach((lineBreak) => lineBreak.remove());
+  breaks[0].dataset.editorPlaceholder = "true";
+}
+
+function positionChapterFoldOverlay(headings) {
+  if (!chapterFoldOverlay) return;
+  chapterFoldOverlay.replaceChildren();
+  const stageRect = pageStage.getBoundingClientRect();
+  headings.forEach((heading) => {
+    const headingRect = heading.getBoundingClientRect();
+    const button = createChapterFoldToggle(heading);
+    button.style.left = `${headingRect.left - stageRect.left + pageStage.scrollLeft - 34}px`;
+    button.style.top = `${headingRect.top - stageRect.top + pageStage.scrollTop + (headingRect.height / 2)}px`;
+    chapterFoldOverlay.appendChild(button);
+  });
+}
+
+function applyChapterFolding() {
+  removeLegacyChapterFoldControls();
+  let hideFollowing = false;
+  const headings = [];
+  Array.from(editor.children).forEach((child) => {
+    if (isTopLevelChapterHeading(child)) {
+      hideFollowing = false;
+      normalizeEmptyChapterHeading(child);
+      headings.push(child);
+      child.classList.remove("chapter-folded-content");
+      child.classList.toggle("chapter-is-collapsed", child.dataset.chapterCollapsed === "true");
+      hideFollowing = child.dataset.chapterCollapsed === "true";
+      return;
+    }
+    child.classList.toggle("chapter-folded-content", hideFollowing);
+  });
+  positionChapterFoldOverlay(headings);
+}
+
+function setAllChaptersCollapsed(collapsed) {
+  const headings = Array.from(editor.children).filter(isTopLevelChapterHeading);
+  headings.forEach((heading) => {
+    heading.dataset.chapterCollapsed = collapsed ? "true" : "false";
+  });
+  if (collapsed) {
+    const selectedChild = directEditorChildForNode(window.getSelection()?.anchorNode);
+    const selectedHeading = chapterHeadingForElement(selectedChild);
+    if (selectedHeading && selectedChild !== selectedHeading) moveCaretToBlockStart(selectedHeading);
+  }
+  applyChapterFolding();
+  setStatus(collapsed ? `已折叠 ${headings.length} 个大章节。` : `已展开 ${headings.length} 个大章节。`);
+}
+
+function expandChapterContaining(element) {
+  const heading = chapterHeadingForElement(element);
+  if (!heading || heading.dataset.chapterCollapsed !== "true") return;
+  heading.dataset.chapterCollapsed = "false";
+  applyChapterFolding();
 }
 
 function scrollOutlineTargetIntoView(target) {
@@ -2624,6 +3189,7 @@ function scrollOutlineTargetIntoView(target) {
 
 function focusOutlineTarget(target) {
   if (!target) return;
+  expandChapterContaining(target);
   scrollOutlineTargetIntoView(target);
   flashOutlineTarget(target);
   const range = document.createRange();
@@ -2698,6 +3264,114 @@ function outlineItemFromBlock(block, blockIndex) {
   };
 }
 
+function displayOutlineLevel(item) {
+  return Number(item?.level);
+}
+
+function availableOutlineLevelCeiling(allItems = []) {
+  const documentLevels = allItems.map(displayOutlineLevel).filter(Number.isFinite);
+  const styleLevels = currentStyles.paragraph
+    .map((style) => Number(style.outline_level))
+    .filter((level) => Number.isFinite(level) && level >= 0);
+  return Math.max(5, ...documentLevels, ...styleLevels);
+}
+
+function normalizeOutlineConfig(maxLevel) {
+  const ceiling = Math.max(Number(maxLevel) || 5, 1);
+  const maxPrimaryLevel = Math.max(ceiling - 1, 0);
+  outlineConfig.primaryMin = Math.min(Math.max(Number(outlineConfig.primaryMin) || 0, 0), maxPrimaryLevel);
+  outlineConfig.primaryMax = Math.min(
+    Math.max(Number(outlineConfig.primaryMax) || outlineConfig.primaryMin, outlineConfig.primaryMin),
+    maxPrimaryLevel,
+  );
+  outlineConfig.secondaryMax = Math.min(
+    Math.max(Number(outlineConfig.secondaryMax) || ceiling, outlineConfig.primaryMax + 1),
+    ceiling,
+  );
+  for (let level = outlineConfig.primaryMin; level <= outlineConfig.primaryMax; level += 1) {
+    if (outlineFilter[level] === undefined) outlineFilter[level] = true;
+  }
+  return ceiling;
+}
+
+function renderPrimaryOutlineLevelToggles() {
+  if (!primaryOutlineLevelToggles) return;
+  primaryOutlineLevelToggles.innerHTML = "";
+  const otherLabel = document.createElement("label");
+  otherLabel.className = "outline-other-toggle";
+  const otherInput = document.createElement("input");
+  otherInput.type = "checkbox";
+  otherInput.checked = showOtherOutlineBranches;
+  otherInput.addEventListener("change", () => {
+    showOtherOutlineBranches = otherInput.checked;
+    persistOutlineFilter();
+    refreshOutline();
+  });
+  otherLabel.append(otherInput, " Other");
+  primaryOutlineLevelToggles.appendChild(otherLabel);
+
+  for (let level = outlineConfig.primaryMin; level <= outlineConfig.primaryMax; level += 1) {
+    const levelLabel = document.createElement("label");
+    const levelInput = document.createElement("input");
+    levelInput.type = "checkbox";
+    levelInput.checked = outlineFilter[level] !== false;
+    levelInput.dataset.outlineLevel = String(level);
+    levelInput.addEventListener("change", () => {
+      outlineFilter[level] = levelInput.checked;
+      persistOutlineFilter();
+      refreshOutline();
+    });
+    levelLabel.append(levelInput, ` L${level}`);
+    primaryOutlineLevelToggles.appendChild(levelLabel);
+  }
+}
+
+function syncOutlineConfigControls(maxLevel, renderToggles = true) {
+  const ceiling = normalizeOutlineConfig(maxLevel);
+  if (primaryOutlineMinSlider) {
+    primaryOutlineMinSlider.min = "0";
+    primaryOutlineMinSlider.max = String(Math.max(ceiling - 1, 0));
+    primaryOutlineMinSlider.value = String(outlineConfig.primaryMin);
+  }
+  if (primaryOutlineMaxSlider) {
+    primaryOutlineMaxSlider.min = String(outlineConfig.primaryMin);
+    primaryOutlineMaxSlider.max = String(Math.max(ceiling - 1, 0));
+    primaryOutlineMaxSlider.value = String(outlineConfig.primaryMax);
+  }
+  if (secondaryOutlineMaxSlider) {
+    secondaryOutlineMaxSlider.min = String(outlineConfig.primaryMax + 1);
+    secondaryOutlineMaxSlider.max = String(ceiling);
+    secondaryOutlineMaxSlider.value = String(outlineConfig.secondaryMax);
+  }
+  if (primaryOutlineMinText) primaryOutlineMinText.textContent = `L${outlineConfig.primaryMin}`;
+  if (primaryOutlineMaxText) primaryOutlineMaxText.textContent = `L${outlineConfig.primaryMax}`;
+  if (secondaryOutlineMaxText) secondaryOutlineMaxText.textContent = `L${outlineConfig.secondaryMax}`;
+  if (renderToggles) renderPrimaryOutlineLevelToggles();
+}
+
+function initOutlineConfigControls() {
+  const updateFromSliders = (source) => {
+    const ceiling = availableOutlineLevelCeiling();
+    if (source === "min") {
+      outlineConfig.primaryMin = Number(primaryOutlineMinSlider.value);
+      if (outlineConfig.primaryMax < outlineConfig.primaryMin) outlineConfig.primaryMax = outlineConfig.primaryMin;
+    } else if (source === "max") {
+      outlineConfig.primaryMax = Number(primaryOutlineMaxSlider.value);
+      if (outlineConfig.primaryMin > outlineConfig.primaryMax) outlineConfig.primaryMin = outlineConfig.primaryMax;
+      if (outlineConfig.secondaryMax <= outlineConfig.primaryMax) outlineConfig.secondaryMax = outlineConfig.primaryMax + 1;
+    } else if (source === "secondary") {
+      outlineConfig.secondaryMax = Number(secondaryOutlineMaxSlider.value);
+    }
+    syncOutlineConfigControls(ceiling);
+    persistOutlineFilter();
+    refreshOutline();
+  };
+  primaryOutlineMinSlider?.addEventListener("input", () => updateFromSliders("min"));
+  primaryOutlineMaxSlider?.addEventListener("input", () => updateFromSliders("max"));
+  secondaryOutlineMaxSlider?.addEventListener("input", () => updateFromSliders("secondary"));
+  syncOutlineConfigControls(availableOutlineLevelCeiling());
+}
+
 function nearestOutlineItem(items, blockIndex) {
   if (!items.length || !Number.isFinite(blockIndex)) return null;
   return items.reduce((nearest, item) => {
@@ -2736,7 +3410,10 @@ function resetOutlineNavigationState() {
 }
 
 function resolvePrimaryOutlineItem(allItems, visiblePrimaryItems) {
-  const eligibleItems = allItems.filter((item) => item.level <= 2 && item.textContent.trim());
+  const eligibleItems = allItems.filter((item) => {
+    const level = displayOutlineLevel(item);
+    return level >= outlineConfig.primaryMin && level <= outlineConfig.primaryMax && item.textContent.trim();
+  });
   const currentItem = eligibleItems.find((item) => item.element === activePrimaryOutlineElement);
   if (currentItem) {
     rememberPrimaryOutlineItem(currentItem);
@@ -2766,25 +3443,56 @@ function secondaryItemsForAnchor(allItems, anchorElement) {
   for (let index = anchorIndex + 1; index < allItems.length; index += 1) {
     const item = allItems[index];
     if (item.level <= anchorLevel) break;
-    if (item.level >= 2 && item.level > anchorLevel && item.textContent.trim()) {
+    const displayLevel = displayOutlineLevel(item);
+    if (
+      item.level > anchorLevel
+      && displayLevel > outlineConfig.primaryMax
+      && displayLevel <= outlineConfig.secondaryMax
+      && item.textContent.trim()
+    ) {
       descendants.push(item);
     }
   }
   return descendants;
 }
 
-function effectiveSecondaryOutlineMaxLevel() {
-  if (secondaryOutlineMaxLevel === null) return secondaryOutlineAvailableMaxLevel;
-  return Math.min(Math.max(secondaryOutlineMaxLevel, 2), secondaryOutlineAvailableMaxLevel);
+function outlineAncestorIndex(allItems, anchorIndex, level) {
+  if (anchorIndex < 0) return -1;
+  for (let index = anchorIndex; index >= 0; index -= 1) {
+    const itemLevel = displayOutlineLevel(allItems[index]);
+    if (itemLevel === level) return index;
+    if (itemLevel < level) return -1;
+  }
+  return -1;
+}
+
+function primaryBranchBounds(allItems, anchorElement) {
+  if (showOtherOutlineBranches) return null;
+  const anchorIndex = allItems.findIndex((item) => item.element === anchorElement);
+  if (anchorIndex < 0) return null;
+  const constrainedLevels = [];
+  for (let level = outlineConfig.primaryMin; level <= outlineConfig.primaryMax; level += 1) {
+    if (outlineFilter[level] === false) constrainedLevels.push(level);
+  }
+  constrainedLevels.sort((left, right) => right - left);
+  for (const level of constrainedLevels) {
+    const start = outlineAncestorIndex(allItems, anchorIndex, level);
+    if (start < 0) continue;
+    let end = allItems.length;
+    for (let index = start + 1; index < allItems.length; index += 1) {
+      if (displayOutlineLevel(allItems[index]) <= level) {
+        end = index;
+        break;
+      }
+    }
+    return { start, end, level };
+  }
+  return null;
 }
 
 function renderSecondaryOutline(allItems) {
   const availableItems = secondaryItemsForAnchor(allItems, activePrimaryOutlineElement);
-  secondaryOutlineAvailableMaxLevel = availableItems.length
-    ? Math.max(2, ...availableItems.map((item) => item.level))
-    : 2;
-  const effectiveMaxLevel = effectiveSecondaryOutlineMaxLevel();
-  const visibleItems = availableItems.filter((item) => item.level <= effectiveMaxLevel);
+  const visibleItems = availableItems;
   if (secondaryOutlineWasManuallySelected) {
     const currentItem = availableItems.find((item) => item.element === activeSecondaryOutlineElement);
     const resolvedItem = currentItem || nearestOutlineItem(availableItems, activeSecondaryOutlineBlockIndex);
@@ -2796,11 +3504,9 @@ function renderSecondaryOutline(allItems) {
   }
 
   if (secondaryOutlineLevelText) {
-    secondaryOutlineLevelText.textContent = effectiveMaxLevel > 2 ? `L2–L${effectiveMaxLevel}` : "L2";
+    secondaryOutlineLevelText.textContent = `L${outlineConfig.primaryMax + 1}–L${outlineConfig.secondaryMax}`;
   }
-  if (secondaryOutlineLessBtn) secondaryOutlineLessBtn.disabled = effectiveMaxLevel <= 2;
-  if (secondaryOutlineMoreBtn) secondaryOutlineMoreBtn.disabled = effectiveMaxLevel >= secondaryOutlineAvailableMaxLevel;
-  renderOutlineButtons(secondaryOutline, visibleItems, "当前标题下暂无子节", 2, {
+  renderOutlineButtons(secondaryOutline, visibleItems, "当前标题下暂无子节", outlineConfig.primaryMax + 1, {
     activeElement: activeSecondaryOutlineElement,
     onItemClick: (item) => rememberSecondaryOutlineItem(item, true),
   });
@@ -2808,18 +3514,28 @@ function renderSecondaryOutline(allItems) {
 
 function refreshOutline() {
   normalizeEditorStructure();
+  applyChapterFolding();
   refreshNumberingVisuals();
   const allItems = allBlockElements()
     .map(outlineItemFromBlock)
     .filter((item) => Number.isFinite(item.level) && item.textContent.trim());
+  syncOutlineConfigControls(availableOutlineLevelCeiling(allItems), false);
   const primaryItems = allItems.filter((item) => {
-    const displayLevel = item.level + 1;
-    return displayLevel <= 3 && outlineFilter[displayLevel];
+    const displayLevel = displayOutlineLevel(item);
+    return displayLevel >= outlineConfig.primaryMin
+      && displayLevel <= outlineConfig.primaryMax
+      && outlineFilter[displayLevel] !== false;
   });
 
-  resolvePrimaryOutlineItem(allItems, primaryItems);
+  const activeItem = resolvePrimaryOutlineItem(allItems, primaryItems);
+  const branchBounds = primaryBranchBounds(allItems, activeItem?.element || activePrimaryOutlineElement);
+  const visiblePrimaryItems = branchBounds
+    ? primaryItems.filter((item) => item.blockIndex >= allItems[branchBounds.start].blockIndex
+      && item.blockIndex < (allItems[branchBounds.end]?.blockIndex ?? Number.POSITIVE_INFINITY))
+    : primaryItems;
+  const safeVisiblePrimaryItems = visiblePrimaryItems.length ? visiblePrimaryItems : primaryItems;
 
-  renderOutlineButtons(outline, primaryItems, "暂无标题导航", 0, {
+  renderOutlineButtons(outline, safeVisiblePrimaryItems, "暂无标题导航", outlineConfig.primaryMin, {
     activeElement: activePrimaryOutlineElement,
     onItemClick: (item) => {
       rememberPrimaryOutlineItem(item, true);
@@ -2827,7 +3543,7 @@ function refreshOutline() {
       activeSecondaryOutlineBlockIndex = null;
       secondaryOutlineWasManuallySelected = false;
       if (secondaryOutline) secondaryOutline.scrollTop = 0;
-      renderSecondaryOutline(allItems);
+      refreshOutline();
     },
   });
   renderSecondaryOutline(allItems);
@@ -3058,7 +3774,16 @@ function collectRuns(node, inheritedStyle, bucket) {
   if (node.nodeType !== Node.ELEMENT_NODE) {
     return;
   }
+  if (node.dataset.editorUi === "true" || node.classList.contains("chapter-fold-toggle")) {
+    return;
+  }
   if (node.tagName === "IMG") {
+    return;
+  }
+  if (node.tagName === "BR") {
+    if (node.dataset.editorPlaceholder !== "true") {
+      bucket.push({ text: "\n", descriptor: inheritedStyle });
+    }
     return;
   }
   const nextStyle = descriptorFromStyle(window.getComputedStyle(node));
@@ -3150,7 +3875,7 @@ function spansFromRuns(runs) {
   return (runs || []).map((run) => {
     const [family, size, bold, italic, underline, background] = cloneDescriptor(run.descriptor);
     const span = document.createElement("span");
-    span.textContent = run.text;
+    span.textContent = String(run.text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
     span.style.fontFamily = family;
     span.style.fontSize = `${Math.max(Number(size) / 0.75, 1)}px`;
     span.style.fontWeight = bold ? "700" : "400";
@@ -3313,13 +4038,48 @@ function loadShortcuts() {
 
 function loadOutlineFilter() {
   try {
-    const raw = window.localStorage.getItem(OUTLINE_FILTER_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
+    const configRaw = window.localStorage.getItem(OUTLINE_CONFIG_KEY);
+    const config = configRaw ? JSON.parse(configRaw) : null;
+    if (config && typeof config === "object") {
+      outlineConfig = {
+        primaryMin: Math.max(Number(config.primaryMin) || 0, 0),
+        primaryMax: Math.max(Number(config.primaryMax) || 3, 1),
+        secondaryMax: Math.max(Number(config.secondaryMax) || 5, 1),
+      };
+      const visibleLevels = config.visibleLevels && typeof config.visibleLevels === "object"
+        ? config.visibleLevels
+        : {};
+      outlineFilter = Object.fromEntries(
+        Object.entries(visibleLevels).map(([level, visible]) => [Number(level), Boolean(visible)]),
+      );
+      showOtherOutlineBranches = config.showOtherBranches !== false;
+      return;
+    }
+
+    const legacyConfigRaw = window.localStorage.getItem(LEGACY_OUTLINE_CONFIG_KEY);
+    const legacyConfig = legacyConfigRaw ? JSON.parse(legacyConfigRaw) : null;
+    if (legacyConfig && typeof legacyConfig === "object") {
+      outlineConfig = {
+        primaryMin: Math.max((Number(legacyConfig.primaryMin) || 1) - 1, 0),
+        primaryMax: Math.max((Number(legacyConfig.primaryMax) || 3) - 1, 0),
+        secondaryMax: Math.max((Number(legacyConfig.secondaryMax) || 6) - 1, 1),
+      };
+      const visibleLevels = legacyConfig.visibleLevels && typeof legacyConfig.visibleLevels === "object"
+        ? legacyConfig.visibleLevels
+        : {};
+      outlineFilter = Object.fromEntries(
+        Object.entries(visibleLevels).map(([level, visible]) => [Math.max(Number(level) - 1, 0), Boolean(visible)]),
+      );
+      return;
+    }
+
+    const legacyRaw = window.localStorage.getItem(OUTLINE_FILTER_KEY);
+    const parsed = legacyRaw ? JSON.parse(legacyRaw) : null;
     if (parsed && typeof parsed === "object") {
       outlineFilter = {
-        1: Boolean(parsed[1]),
-        2: Boolean(parsed[2]),
-        3: Boolean(parsed[3]),
+        0: Boolean(parsed[1]),
+        1: Boolean(parsed[2]),
+        2: Boolean(parsed[3]),
       };
     }
   } catch {
@@ -3329,7 +4089,11 @@ function loadOutlineFilter() {
 
 function persistOutlineFilter() {
   try {
-    window.localStorage.setItem(OUTLINE_FILTER_KEY, JSON.stringify(outlineFilter));
+    window.localStorage.setItem(OUTLINE_CONFIG_KEY, JSON.stringify({
+      ...outlineConfig,
+      visibleLevels: outlineFilter,
+      showOtherBranches: showOtherOutlineBranches,
+    }));
   } catch {
     // Ignore storage errors.
   }
@@ -3464,6 +4228,7 @@ function updateStyleFromSelection() {
   if (fontSize?.value) {
     nextDescriptor[1] = Math.max(Number(fontSize.value) || nextDescriptor[1], 1);
   }
+  nextDescriptor[5] = previousDescriptor[5] || "";
   const nextOutlineLevel = (() => {
     if (style.id === "Normal") return null;
     if (block.tagName === "H1") return 0;
@@ -3521,25 +4286,9 @@ async function requestDocxBlob(filename) {
   });
   if (!response.ok) {
     const result = await response.json();
-    throw new Error(result.error || "保存文件失败。");
+    throw new Error(result.error || "导出 DOCX 失败。");
   }
   return response.blob();
-}
-
-async function stageDocxBlob(filename, blob) {
-  const response = await fetch("/api/stage-save", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/octet-stream",
-      "X-Filename": filename || "mini-docx.docx",
-    },
-    body: blob,
-  });
-  const result = await response.json();
-  if (!response.ok || !result.ok) {
-    throw new Error(result.error || "创建临时保存副本失败。");
-  }
-  return result;
 }
 
 async function writeBlobToHandle(fileHandle, blob) {
@@ -3555,7 +4304,7 @@ async function saveDocx(options = {}) {
   try {
     if (!currentFilePath) {
       if (!interactive && !allowPicker) {
-        setStatus("请先点击“保存文件”选择保存位置。");
+        setStatus("当前文件尚未选择保存位置。");
         return;
       }
       const pathResponse = await fetch("/api/pick-save-path", {
@@ -3653,14 +4402,6 @@ openBtn.addEventListener("click", async () => {
   }
 });
 
-saveBtn.addEventListener("click", async () => {
-  try {
-    await saveDocx();
-  } catch (error) {
-    handleAsyncError(error);
-  }
-});
-
 exportBtn?.addEventListener("click", async () => {
   try {
     await exportDocx();
@@ -3677,37 +4418,6 @@ document.getElementById("removeColBtn").addEventListener("click", removeTableCol
 deleteTableBtn.addEventListener("click", deleteCurrentTable);
 
 document.getElementById("refreshOutlineBtn")?.addEventListener("click", refreshOutline);
-secondaryOutlineLessBtn?.addEventListener("click", () => {
-  const currentMaxLevel = effectiveSecondaryOutlineMaxLevel();
-  if (currentMaxLevel <= 2) return;
-  secondaryOutlineMaxLevel = currentMaxLevel - 1;
-  refreshOutline();
-  setStatus(`二级导航最多显示到 level ${secondaryOutlineMaxLevel}`);
-});
-secondaryOutlineMoreBtn?.addEventListener("click", () => {
-  const currentMaxLevel = effectiveSecondaryOutlineMaxLevel();
-  if (currentMaxLevel >= secondaryOutlineAvailableMaxLevel) return;
-  secondaryOutlineMaxLevel = currentMaxLevel + 1;
-  refreshOutline();
-  setStatus(`二级导航最多显示到 level ${secondaryOutlineMaxLevel}`);
-});
-if (outlineLevel1 && outlineLevel2 && outlineLevel3) {
-  outlineLevel1.checked = outlineFilter[1];
-  outlineLevel2.checked = outlineFilter[2];
-  outlineLevel3.checked = outlineFilter[3];
-  const syncOutlineFilter = () => {
-    outlineFilter = {
-      1: outlineLevel1.checked,
-      2: outlineLevel2.checked,
-      3: outlineLevel3.checked,
-    };
-    persistOutlineFilter();
-    refreshOutline();
-  };
-  [outlineLevel1, outlineLevel2, outlineLevel3].forEach((input) => {
-    input.addEventListener("change", syncOutlineFilter);
-  });
-}
 
 Array.from(document.querySelectorAll("[data-cmd]")).forEach((button) => {
   button.addEventListener("click", () => exec(button.dataset.cmd));
@@ -3729,7 +4439,7 @@ Array.from(document.querySelectorAll(".toolbar-wrap button")).forEach((button) =
   control.addEventListener("mousedown", captureEditorSelection);
 });
 
-fontFamily.addEventListener("change", () => {
+fontFamily?.addEventListener("change", () => {
   debugLog("fontFamily:change", summarizeCurrentSelectionForDebug());
   const selectedFamily = fontFamilyForDocument(fontFamily.value);
   const selection = window.getSelection();
@@ -3757,7 +4467,7 @@ fontFamily.addEventListener("change", () => {
   exec("fontName", selectedFamily);
 });
 
-fontSize.addEventListener("change", () => {
+fontSize?.addEventListener("change", () => {
   debugLog("fontSize:change", summarizeCurrentSelectionForDebug());
   const targetPointSize = Number(fontSize.value);
   if (!Number.isFinite(targetPointSize) || targetPointSize <= 0) return;
@@ -3846,13 +4556,13 @@ spaceBeforeInput.addEventListener("change", applyCurrentParagraphMetrics);
 spaceAfterInput.addEventListener("change", applyCurrentParagraphMetrics);
 toggleNumberingBtn?.addEventListener("click", toggleNumbering);
 numberFormatSelect?.addEventListener("change", applyNumberFormatToSelection);
-clearFormatBtn.addEventListener("click", () => {
+clearFormatBtn?.addEventListener("click", () => {
   exec("removeFormat");
   setStatus("已清除选区文字格式。");
 });
 saveStyleBtn.addEventListener("click", saveCurrentStyle);
 updateStyleBtn.addEventListener("click", updateStyleFromSelection);
-formatPainterBtn.addEventListener("click", () => {
+formatPainterBtn?.addEventListener("click", () => {
   if (formatPainterPayload) {
     clearFormatPainter();
     setStatus("已关闭格式刷。");
@@ -3873,6 +4583,38 @@ historyModal.addEventListener("click", (event) => {
   if (event.target.dataset.closeModal === "true") {
     closeHistoryModal();
   }
+});
+closeFindReplaceBtn?.addEventListener("click", closeFindReplaceModal);
+findReplaceModal?.addEventListener("click", (event) => {
+  if (event.target.dataset.closeModal === "true") closeFindReplaceModal();
+});
+document.addEventListener("pointerdown", (event) => {
+  if (!activeFindHighlightElement) return;
+  if (findReplaceModal?.contains(event.target)) return;
+  clearPersistentFindHighlight();
+}, true);
+findTextInput?.addEventListener("input", () => {
+  window.clearTimeout(findInputRefreshTimer);
+  updateFindMatchStatus("正在查找…");
+  findInputRefreshTimer = window.setTimeout(() => refreshFindMatches(), 120);
+});
+findCaseSensitive?.addEventListener("change", () => refreshFindMatches());
+findPreviousBtn?.addEventListener("click", () => moveFindMatch(-1));
+findNextBtn?.addEventListener("click", () => moveFindMatch(1));
+replaceCurrentBtn?.addEventListener("click", replaceCurrentFindMatch);
+replaceAllBtn?.addEventListener("click", replaceAllFindMatches);
+[findTextInput, replaceTextInput].forEach((input) => {
+  input?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeFindReplaceModal();
+      return;
+    }
+    if (input === findTextInput && event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      moveFindMatch(event.shiftKey ? -1 : 1);
+    }
+  });
 });
 browseDirBtn.addEventListener("click", async () => {
   if (!supportsDirectoryAccess()) {
@@ -3922,28 +4664,17 @@ openDocxInput.addEventListener("change", async (event) => {
   }
 });
 
-imageInput.addEventListener("change", async (event) => {
-  const files = Array.from(event.target.files || []);
-  for (const file of files) {
-    const dataUrl = await toBase64(file);
-    insertImage(dataUrl, file.name);
-  }
-  if (files.length) markDirty();
-  setStatus(`已插入 ${files.length} 张图片`);
-  event.target.value = "";
-});
-
-editor.addEventListener("input", refreshOutline);
-editor.addEventListener("input", markDirty);
+editor.addEventListener("input", handleEditorInput);
 editor.addEventListener("beforeinput", (event) => {
   if (suppressEditorHistory || isLoadingDocument) return;
   if (event.inputType === "historyUndo" || event.inputType === "historyRedo") return;
+  pendingDeleteStructure = (event.inputType || "").startsWith("delete") ? captureDeleteStructure() : null;
   recordUndoSnapshot();
 });
 editor.addEventListener("keyup", refreshOutline);
 editor.addEventListener("click", syncParagraphStyleSelect);
 editor.addEventListener("click", (event) => {
-  const block = event.target.closest && event.target.closest("p, h1, h2, h3, div");
+  const block = event.target.closest && event.target.closest("p, h1, h2, h3");
   if (formatPainterPayload && block) {
     applyFormatPainterToBlock(block);
   }
@@ -3961,14 +4692,7 @@ editor.addEventListener("paste", async (event) => {
     return;
   }
   event.preventDefault();
-  for (const item of imageItems) {
-    const file = item.getAsFile();
-    if (!file) continue;
-    const dataUrl = await toBase64(file);
-    insertImage(dataUrl, file.name || "pasted-image.png");
-  }
-  markDirty();
-  refreshOutline();
+  setStatus("插入图片功能已移除。");
 });
 editor.addEventListener("keydown", (event) => {
   if (event.key === "Tab") {
@@ -4035,6 +4759,9 @@ editor.addEventListener("focus", () => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (handleFindShortcut(event)) {
+    return;
+  }
   if (handleGlobalSaveShortcut(event, "window-capture")) {
     return;
   }
@@ -4044,6 +4771,9 @@ window.addEventListener("keydown", (event) => {
 }, true);
 
 document.addEventListener("keydown", (event) => {
+  if (handleFindShortcut(event)) {
+    return;
+  }
   if (handleGlobalSaveShortcut(event, "document")) {
     return;
   }
@@ -4121,6 +4851,12 @@ pageStage.addEventListener("wheel", (event) => {
   adjustEditorZoom(event.deltaY < 0 ? 0.1 : -0.1);
 }, { passive: false });
 
+window.addEventListener("resize", () => {
+  requestAnimationFrame(() => {
+    positionChapterFoldOverlay(Array.from(editor.children).filter(isTopLevelChapterHeading));
+  });
+});
+
 window.addEventListener("beforeunload", (event) => {
   if (!isDirty) return;
   event.preventDefault();
@@ -4129,6 +4865,7 @@ window.addEventListener("beforeunload", (event) => {
 
 currentStyles = normalizeStyles(defaultStyles());
 loadOutlineFilter();
+initOutlineConfigControls();
 loadShortcuts();
 initLayoutToggles();
 initAdvancedToolGroups();
@@ -4136,6 +4873,8 @@ if (saveStyleBtn) {
   saveStyleBtn.title = "保存到当前选中的段落样式";
 }
 cleanResourcesBtn?.addEventListener("click", cleanResources);
+collapseAllChaptersBtn?.addEventListener("click", () => setAllChaptersCollapsed(true));
+expandAllChaptersBtn?.addEventListener("click", () => setAllChaptersCollapsed(false));
 refreshResourceStats();
 window.setInterval(refreshResourceStats, RESOURCE_REFRESH_MS);
 populateStyleSelect("Normal");

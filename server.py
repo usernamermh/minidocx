@@ -85,12 +85,7 @@ def _safe_filename(filename: str) -> str:
 def _prune_staged_saves(filename: str) -> None:
     stem = Path(filename).stem
     suffix = Path(filename).suffix or ".docx"
-    pattern = f"{stem}-*{suffix}"
-    candidates = []
-    for path in SAFE_SAVE_DIR.glob(pattern):
-        if not path.is_file():
-            continue
-        candidates.append(path)
+    candidates = [path for path in SAFE_SAVE_DIR.glob(f"{stem}-*{suffix}") if path.is_file()]
     candidates.sort(key=lambda item: item.stat().st_mtime, reverse=True)
     for stale in candidates[MAX_STAGED_SAVES_PER_FILE:]:
         try:
@@ -287,12 +282,7 @@ class EditorHandler(BaseHTTPRequestHandler):
         current_path = str(payload.get("current_path") or "").strip()
         initial_dir = str(Path(current_path).expanduser().parent) if current_path else str(Path.home() / "Documents")
         try:
-            selected = _show_windows_file_dialog(
-                save=True,
-                title="保存 DOCX 文件",
-                suggested_name=suggested_name,
-                initial_dir=initial_dir,
-            )
+            selected = _show_windows_file_dialog(save=True, title="保存 DOCX 文件", suggested_name=suggested_name, initial_dir=initial_dir)
             if not selected:
                 self._send_json({"ok": False, "cancelled": True})
                 return
@@ -322,10 +312,7 @@ class EditorHandler(BaseHTTPRequestHandler):
         try:
             staged_path = _create_staged_save(filename, raw)
         except Exception as exc:
-            self._send_json(
-                {"ok": False, "error": str(exc), "directory": str(SAFE_SAVE_DIR)},
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-            )
+            self._send_json({"ok": False, "error": str(exc), "directory": str(SAFE_SAVE_DIR)}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return
         self._send_json({"ok": True, "path": str(staged_path), "directory": str(SAFE_SAVE_DIR)})
 

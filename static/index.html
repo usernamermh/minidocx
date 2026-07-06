@@ -15,28 +15,21 @@
       </div>
 
       <div class="panel quick-actions-panel">
-        <div class="panel-head">
-        </div>
         <div class="quick-actions-grid">
           <button id="newBtn" type="button">新建</button>
           <button id="openBtn" type="button">打开文件</button>
+          <button id="historyPanelBtn" type="button">历史/常用</button>
+          <button id="shortcutSettingsBtn" type="button">快捷键设置</button>
           <label class="file-btn fallback-file-btn quick-action-file">
             选择文件
             <input id="openDocxInput" type="file" accept=".docx">
           </label>
-          <button id="saveBtn" type="button">保存文件</button>
-          <label class="file-btn alt quick-action-file">
-            插入图片
-            <input id="imageInput" type="file" accept="image/*" multiple>
-          </label>
         </div>
       </div>
 
-      <div class="panel compact-action-panel history-panel">
-        <button id="historyPanelBtn" class="ghost-btn" type="button">历史/常用</button>
-      </div>
-      <div class="panel compact-action-panel shortcuts-panel">
-        <button id="shortcutSettingsBtn" class="ghost-btn" type="button">快捷键设置</button>
+      <div class="panel chapter-actions-panel">
+        <button id="collapseAllChaptersBtn" type="button">全部折叠</button>
+        <button id="expandAllChaptersBtn" type="button">全部展开</button>
       </div>
 
       <div class="panel resource-panel">
@@ -54,25 +47,39 @@
         <p id="resourceMemoryDetail" class="resource-detail">-- / -- MB</p>
       </div>
 
+      <div class="panel outline-settings-panel">
+        <div class="outline-config-panel" aria-label="导航层级配置">
+          <div class="outline-slider-row">
+            <label for="primaryOutlineMinSlider">一级起点</label>
+            <input id="primaryOutlineMinSlider" type="range" min="0" max="4" step="1" value="0">
+            <span id="primaryOutlineMinText">L0</span>
+          </div>
+          <div class="outline-slider-row">
+            <label for="primaryOutlineMaxSlider">一级终点</label>
+            <input id="primaryOutlineMaxSlider" type="range" min="1" max="5" step="1" value="3">
+            <span id="primaryOutlineMaxText">L3</span>
+          </div>
+          <div class="outline-slider-row">
+            <label for="secondaryOutlineMaxSlider">二级终点</label>
+            <input id="secondaryOutlineMaxSlider" type="range" min="1" max="5" step="1" value="5">
+            <span id="secondaryOutlineMaxText">L5</span>
+          </div>
+          <div id="primaryOutlineLevelToggles" class="outline-filter" aria-label="一级导航显示层级"></div>
+        </div>
+      </div>
+
       <div class="panel">
         <div class="panel-head">
           <h2>导航</h2>
         </div>
         <nav id="outline" class="outline"></nav>
-        <div class="outline-filter">
-          <label><input id="outlineLevel1" type="checkbox" checked> H1</label>
-          <label><input id="outlineLevel2" type="checkbox" checked> H2</label>
-          <label><input id="outlineLevel3" type="checkbox" checked> H3</label>
-        </div>
       </div>
 
       <div class="panel">
         <div class="panel-head">
           <h2>二级导航</h2>
           <div class="secondary-outline-controls" aria-label="二级导航层级范围">
-            <span id="secondaryOutlineLevelText">L2</span>
-            <button id="secondaryOutlineLessBtn" class="outline-level-btn" type="button" title="更少级别（最低为 level 2）" aria-label="更少级别">−</button>
-            <button id="secondaryOutlineMoreBtn" class="outline-level-btn" type="button" title="更多级别" aria-label="更多级别">+</button>
+            <span id="secondaryOutlineLevelText">L4–L5</span>
           </div>
         </div>
         <nav id="secondaryOutline" class="outline secondary-outline"></nav>
@@ -87,41 +94,14 @@
     <main class="workspace">
       <header class="toolbar-wrap" id="topToolbar">
         <div class="toolbar-groups">
-          <section class="tool-group font-tool-group collapsible-tool-group">
+          <section class="tool-group highlight-tool-group collapsible-tool-group" aria-label="文字底色">
             <div class="tool-group-head">
-              <button id="fontAdvancedToggle" class="advanced-toggle-btn tool-group-toggle" data-label="字体" type="button" aria-controls="fontAdvancedContent" aria-expanded="false">字体</button>
+              <button id="highlightAdvancedToggle" class="advanced-toggle-btn tool-group-toggle" data-label="底色" type="button" aria-controls="highlightAdvancedContent" aria-expanded="false">底色</button>
             </div>
-            <div id="fontAdvancedContent" class="collapsible-tool-content hidden-tool-content">
+            <div id="highlightAdvancedContent" class="collapsible-tool-content hidden-tool-content">
               <div class="toolbar-row dense">
-              <select id="fontFamily">
-                <option>Georgia</option>
-                <option>Calibri</option>
-                <option>Arial</option>
-                <option selected>Times New Roman</option>
-                <option>Microsoft YaHei</option>
-                <option>SimSun</option>
-                <option>Consolas</option>
-              </select>
-
-              <select id="fontSize">
-                <option value="10">10</option>
-                <option value="12" selected>12</option>
-                <option value="14">14</option>
-                <option value="16">16</option>
-                <option value="18">18</option>
-                <option value="20">20</option>
-                <option value="24">24</option>
-                <option value="28">28</option>
-                <option value="32">32</option>
-              </select>
-
-              <button data-cmd="bold" type="button">B</button>
-              <button data-cmd="italic" type="button">I</button>
-              <button data-cmd="underline" type="button">U</button>
-              <input id="highlightColor" type="color" value="#fff2aa" title="文字底色">
-              <button id="applyHighlightBtn" type="button">底色</button>
-              <button id="clearFormatBtn" type="button">清除格式</button>
-              <button id="formatPainterBtn" type="button">格式刷</button>
+                <input id="highlightColor" type="color" value="#fff2aa" title="选择文字底色">
+                <button id="applyHighlightBtn" type="button">应用底色</button>
               </div>
             </div>
           </section>
@@ -226,6 +206,7 @@
       </header>
 
       <section id="pageStage" class="page-stage">
+        <div id="chapterFoldOverlay" class="chapter-fold-overlay" data-editor-ui="true"></div>
         <div id="editor" class="editor" contenteditable="true"></div>
       </section>
 
@@ -277,6 +258,35 @@
         <h3>目录文件</h3>
         <div id="dirFileList" class="history-list"></div>
       </section>
+    </div>
+  </div>
+
+  <div id="findReplaceModal" class="modal hidden">
+    <div class="modal-backdrop" data-close-modal="true"></div>
+    <div class="modal-panel find-replace-panel">
+      <div class="panel-head">
+        <h2>查找和替换</h2>
+        <div class="modal-actions">
+          <button id="closeFindReplaceBtn" class="ghost-btn" type="button">关闭</button>
+        </div>
+      </div>
+      <div class="find-replace-grid">
+        <label for="findTextInput">查找</label>
+        <textarea id="findTextInput" rows="2" spellcheck="false" placeholder="支持 \n、\r\n、\t、\\"></textarea>
+        <label for="replaceTextInput">替换为</label>
+        <textarea id="replaceTextInput" rows="2" spellcheck="false" placeholder="支持 \n、\r\n、\t、\\"></textarea>
+      </div>
+      <div class="find-replace-options">
+        <label><input id="findCaseSensitive" type="checkbox"> 区分大小写</label>
+        <span id="findMatchStatus">请输入查找内容</span>
+      </div>
+      <div class="find-replace-actions">
+        <button id="findPreviousBtn" type="button">上一个</button>
+        <button id="findNextBtn" type="button">下一个</button>
+        <button id="replaceCurrentBtn" type="button">替换</button>
+        <button id="replaceAllBtn" type="button">全部替换</button>
+      </div>
+      <p class="find-replace-hint">特殊字符会被解析：<code>\n</code> 为换行，<code>\t</code> 为制表符，<code>\\</code> 为反斜杠。</p>
     </div>
   </div>
 
