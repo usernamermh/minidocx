@@ -17,12 +17,6 @@
 
 双击 `MiniDocxTray.exe`。
 
-### 命令行启动
-
-```bat
-cd /d D:\path\to\proj_docx
-python server.py
-```
 
 ## 目录说明
 
