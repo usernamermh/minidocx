@@ -1,4 +1,5 @@
 import io
+from pathlib import Path
 import unittest
 import zipfile
 
@@ -16,6 +17,15 @@ def paragraph_texts(document: dict) -> list[str]:
 
 
 class LineBreakRoundTripTests(unittest.TestCase):
+    def test_editor_empty_paragraph_breaks_are_export_ignored_placeholders(self):
+        script = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function setEmptyBlockPlaceholder(block)", script)
+        self.assertIn("function isSoleEmptyBlockBreak(node)", script)
+        self.assertIn('node.dataset.editorPlaceholder !== "true" && !isSoleEmptyBlockBreak(node)', script)
+        self.assertIn('placeholder.dataset.editorPlaceholder = "true"', script)
+        self.assertNotIn('innerHTML = "<br>"', script)
+
     def test_imports_word_soft_break(self):
         doc = Document()
         paragraph = doc.add_paragraph()

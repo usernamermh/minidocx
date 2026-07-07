@@ -1664,10 +1664,17 @@ function ensureCellParagraphs(cell) {
   });
   if (!cell.querySelector("p, h1, h2, h3")) {
     const p = document.createElement("p");
-    p.innerHTML = "<br>";
+    setEmptyBlockPlaceholder(p);
     p.dataset.styleId = "Normal";
     cell.appendChild(p);
   }
+}
+
+function setEmptyBlockPlaceholder(block) {
+  if (!block) return;
+  const placeholder = document.createElement("br");
+  placeholder.dataset.editorPlaceholder = "true";
+  block.replaceChildren(placeholder);
 }
 
 function normalizeTableStructure(table) {
@@ -1691,7 +1698,7 @@ function makeEditableCell() {
   const td = document.createElement("td");
   const p = document.createElement("p");
   p.dataset.styleId = "Normal";
-  p.innerHTML = "<br>";
+  setEmptyBlockPlaceholder(p);
   applyStyleVisuals(p, getStyleById("Normal"));
   td.appendChild(p);
   return td;
@@ -3764,6 +3771,12 @@ function mergeRuns(runs) {
   return merged;
 }
 
+function isSoleEmptyBlockBreak(node) {
+  const block = node?.closest?.("p, h1, h2, h3");
+  if (!block || block.querySelector("img") || (block.textContent || "").length) return false;
+  return block.querySelectorAll("br").length === 1;
+}
+
 function collectRuns(node, inheritedStyle, bucket) {
   if (node.nodeType === Node.TEXT_NODE) {
     if (node.textContent) {
@@ -3781,7 +3794,7 @@ function collectRuns(node, inheritedStyle, bucket) {
     return;
   }
   if (node.tagName === "BR") {
-    if (node.dataset.editorPlaceholder !== "true") {
+    if (node.dataset.editorPlaceholder !== "true" && !isSoleEmptyBlockBreak(node)) {
       bucket.push({ text: "\n", descriptor: inheritedStyle });
     }
     return;
@@ -3904,7 +3917,7 @@ function renderParagraphBlock(block, parent) {
   applyBlockIndent(el, block.indent_level || 0);
   setNumberingData(el, block.numbering);
   if (!el.textContent.trim()) {
-    el.innerHTML = "<br>";
+    setEmptyBlockPlaceholder(el);
   }
   parent.appendChild(el);
 }
@@ -4715,7 +4728,7 @@ editor.addEventListener("keydown", (event) => {
     recordUndoSnapshot();
     const nextBlock = document.createElement("p");
     nextBlock.dataset.styleId = "Normal";
-    nextBlock.innerHTML = "<br>";
+    setEmptyBlockPlaceholder(nextBlock);
     applyStyleVisuals(nextBlock, getStyleById("Normal"));
     current.insertAdjacentElement("afterend", nextBlock);
     moveCaretToBlockStart(nextBlock);
