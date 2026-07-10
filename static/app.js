@@ -3234,7 +3234,7 @@ function renderOutlineButtons(container, items, emptyText, indentBase = 1, optio
     button.textContent = text;
     const indentLevel = Math.max(0, Number(item.level) - indentBase);
     if (indentLevel > 0) {
-      button.style.paddingLeft = `${indentLevel * 12}px`;
+      button.style.paddingLeft = `${(indentLevel + 1) * 12}px`;
     }
     if (item.element === options.activeElement) {
       button.classList.add("is-active");
@@ -4247,7 +4247,7 @@ function updateStyleFromSelection() {
     if (block.tagName === "H1") return 0;
     if (block.tagName === "H2") return 1;
     if (block.tagName === "H3") return 2;
-    return null;
+    return style.outline_level ?? null;
   })();
   style.descriptor = nextDescriptor;
   style.outline_level = nextOutlineLevel;

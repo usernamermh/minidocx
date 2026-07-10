@@ -356,7 +356,7 @@ body {
   background: transparent;
   color: var(--muted);
   text-align: left;
-  padding: 3px 0;
+  padding: 3px 0 3px 12px;
   border-radius: 0;
   cursor: pointer;
   line-height: 1.45;
@@ -1469,7 +1469,6 @@ button:active,
 }
 
 .outline-item.is-active {
-  padding-left: 12px;
   color: #ffffff;
   text-shadow: 0 0 10px var(--accent);
 }

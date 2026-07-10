@@ -1,9 +1,23 @@
 import unittest
+from pathlib import Path
 
 from docx_io import _builtin_styles, docx_bytes_to_document, document_to_docx_bytes
 
 
 class OutlineLevelRoundTripTests(unittest.TestCase):
+    def test_style_update_preserves_extended_outline_level_for_paragraph_tags(self):
+        script = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("return style.outline_level ?? null;", script)
+
+    def test_outline_items_keep_same_left_padding_when_active(self):
+        css = (Path(__file__).resolve().parents[1] / "static" / "styles.css").read_text(encoding="utf-8")
+        script = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("padding: 3px 0 3px 12px;", css)
+        self.assertNotIn(".outline-item.is-active {\n  padding-left: 12px;", css)
+        self.assertIn("button.style.paddingLeft = `${(indentLevel + 1) * 12}px`;", script)
+
     def test_builtin_styles_are_ordered_by_outline_level_without_code(self):
         styles = _builtin_styles()
 
