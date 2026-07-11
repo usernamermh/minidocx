@@ -18,6 +18,15 @@ class OutlineLevelRoundTripTests(unittest.TestCase):
         self.assertNotIn(".outline-item.is-active {\n  padding-left: 12px;", css)
         self.assertIn("button.style.paddingLeft = `${(indentLevel + 1) * 12}px`;", script)
 
+    def test_other_toggle_limits_primary_outline_to_selected_siblings(self):
+        script = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function primarySiblingBranchBounds(allItems, anchorElement)", script)
+        self.assertIn("const parentLevel = anchorLevel - 1;", script)
+        self.assertIn("return { start: parentStart, end: parentEnd, level: anchorLevel };", script)
+        self.assertIn("&& displayOutlineLevel(item) === branchBounds.level", script)
+        self.assertNotIn("const constrainedLevels = [];", script)
+
     def test_builtin_styles_are_ordered_by_outline_level_without_code(self):
         styles = _builtin_styles()
 

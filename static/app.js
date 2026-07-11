@@ -3473,28 +3473,25 @@ function outlineAncestorIndex(allItems, anchorIndex, level) {
   return -1;
 }
 
-function primaryBranchBounds(allItems, anchorElement) {
+function primarySiblingBranchBounds(allItems, anchorElement) {
   if (showOtherOutlineBranches) return null;
   const anchorIndex = allItems.findIndex((item) => item.element === anchorElement);
   if (anchorIndex < 0) return null;
-  const constrainedLevels = [];
-  for (let level = outlineConfig.primaryMin; level <= outlineConfig.primaryMax; level += 1) {
-    if (outlineFilter[level] === false) constrainedLevels.push(level);
-  }
-  constrainedLevels.sort((left, right) => right - left);
-  for (const level of constrainedLevels) {
-    const start = outlineAncestorIndex(allItems, anchorIndex, level);
-    if (start < 0) continue;
-    let end = allItems.length;
-    for (let index = start + 1; index < allItems.length; index += 1) {
-      if (displayOutlineLevel(allItems[index]) <= level) {
-        end = index;
-        break;
-      }
+  const anchorLevel = displayOutlineLevel(allItems[anchorIndex]);
+  if (!Number.isFinite(anchorLevel)) return null;
+  const parentLevel = anchorLevel - 1;
+  if (parentLevel < outlineConfig.primaryMin) return { start: 0, end: allItems.length, level: anchorLevel };
+
+  const parentStart = outlineAncestorIndex(allItems, anchorIndex, parentLevel);
+  if (parentStart < 0) return null;
+  let parentEnd = allItems.length;
+  for (let index = parentStart + 1; index < allItems.length; index += 1) {
+    if (displayOutlineLevel(allItems[index]) <= parentLevel) {
+      parentEnd = index;
+      break;
     }
-    return { start, end, level };
   }
-  return null;
+  return { start: parentStart, end: parentEnd, level: anchorLevel };
 }
 
 function renderSecondaryOutline(allItems) {
@@ -3535,10 +3532,11 @@ function refreshOutline() {
   });
 
   const activeItem = resolvePrimaryOutlineItem(allItems, primaryItems);
-  const branchBounds = primaryBranchBounds(allItems, activeItem?.element || activePrimaryOutlineElement);
+  const branchBounds = primarySiblingBranchBounds(allItems, activeItem?.element || activePrimaryOutlineElement);
   const visiblePrimaryItems = branchBounds
     ? primaryItems.filter((item) => item.blockIndex >= allItems[branchBounds.start].blockIndex
-      && item.blockIndex < (allItems[branchBounds.end]?.blockIndex ?? Number.POSITIVE_INFINITY))
+      && item.blockIndex < (allItems[branchBounds.end]?.blockIndex ?? Number.POSITIVE_INFINITY)
+      && displayOutlineLevel(item) === branchBounds.level)
     : primaryItems;
   const safeVisiblePrimaryItems = visiblePrimaryItems.length ? visiblePrimaryItems : primaryItems;
 
