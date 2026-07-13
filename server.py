@@ -1,19 +1,21 @@
 from __future__ import annotations
 
-import base64
 import ctypes
+import base64
 import errno
 import json
 import os
 import sys
 import tempfile
 import threading
+import uuid
 import webbrowser
+from collections import OrderedDict
 from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 from ctypes import wintypes
 
 from docx_io import docx_bytes_to_document, document_to_docx_bytes
@@ -32,10 +34,17 @@ def _runtime_root() -> Path:
     return ROOT
 
 
-DEBUG_LOG_PATH = _runtime_root() / "debug_runtime.log"
 SAFE_SAVE_DIR = Path.home() / "MiniDocxSafeSaves"
 MAX_STAGED_SAVES_PER_FILE = 10
+MAX_IMPORT_DOCX_BYTES = 50 * 1024 * 1024
+MAX_PRESERVED_SOURCE_DOCX_BYTES = 10 * 1024 * 1024
+MAX_SOURCE_DOCX_CACHE_BYTES = 64 * 1024 * 1024
+MAX_MEDIA_CACHE_BYTES = 64 * 1024 * 1024
 FILE_DIALOG_LOCK = threading.Lock()
+SOURCE_DOCX_CACHE_LOCK = threading.Lock()
+SOURCE_DOCX_CACHE: OrderedDict[str, bytes] = OrderedDict()
+MEDIA_CACHE_LOCK = threading.Lock()
+MEDIA_CACHE: OrderedDict[str, tuple[str, bytes]] = OrderedDict()
 
 OFN_OVERWRITEPROMPT = 0x00000002
 OFN_NOCHANGEDIR = 0x00000008
@@ -163,6 +172,87 @@ def _atomic_write(path: Path, binary: bytes) -> None:
             temporary_path.unlink(missing_ok=True)
 
 
+def _cache_source_docx(binary: bytes) -> str | None:
+    if len(binary) > MAX_PRESERVED_SOURCE_DOCX_BYTES:
+        return None
+    token = uuid.uuid4().hex
+    with SOURCE_DOCX_CACHE_LOCK:
+        SOURCE_DOCX_CACHE[token] = binary
+        SOURCE_DOCX_CACHE.move_to_end(token)
+        while SOURCE_DOCX_CACHE and sum(len(item) for item in SOURCE_DOCX_CACHE.values()) > MAX_SOURCE_DOCX_CACHE_BYTES:
+            SOURCE_DOCX_CACHE.popitem(last=False)
+    return token
+
+
+def _source_docx_for_document(document: dict) -> bytes | None:
+    meta = document.get("_docx_meta") if isinstance(document.get("_docx_meta"), dict) else {}
+    token = str(meta.get("source_token") or "")
+    if not token:
+        return None
+    with SOURCE_DOCX_CACHE_LOCK:
+        binary = SOURCE_DOCX_CACHE.get(token)
+        if binary is not None:
+            SOURCE_DOCX_CACHE.move_to_end(token)
+        return binary
+
+
+def _cache_media(data_url: str) -> str | None:
+    if not data_url.startswith("data:") or "," not in data_url:
+        return None
+    header, encoded = data_url.split(",", 1)
+    if ";base64" not in header:
+        return None
+    try:
+        binary = base64.b64decode(encoded, validate=True)
+    except (ValueError, UnicodeEncodeError):
+        return None
+    mime = header[5:].split(";", 1)[0] or "image/png"
+    token = uuid.uuid4().hex
+    with MEDIA_CACHE_LOCK:
+        MEDIA_CACHE[token] = (mime, binary)
+        MEDIA_CACHE.move_to_end(token)
+        while MEDIA_CACHE and sum(len(item[1]) for item in MEDIA_CACHE.values()) > MAX_MEDIA_CACHE_BYTES:
+            MEDIA_CACHE.popitem(last=False)
+    return token
+
+
+def _media_for_token(token: str) -> tuple[str, bytes] | None:
+    with MEDIA_CACHE_LOCK:
+        media = MEDIA_CACHE.get(token)
+        if media is not None:
+            MEDIA_CACHE.move_to_end(token)
+        return media
+
+
+def _prepare_document_for_export(document: dict) -> dict:
+    blocks = []
+    for block in document.get("blocks") or []:
+        if not isinstance(block, dict) or block.get("type") != "image" or not block.get("media_token"):
+            blocks.append(block)
+            continue
+        media = _media_for_token(str(block["media_token"]))
+        if media is None:
+            blocks.append(block)
+            continue
+        blocks.append({**block, "_image_bytes": media[1]})
+    return {**document, "blocks": blocks}
+
+
+def _import_document(binary: bytes) -> dict:
+    document = docx_bytes_to_document(binary)
+    for block in document.get("blocks") or []:
+        if not isinstance(block, dict) or block.get("type") != "image":
+            continue
+        token = _cache_media(str(block.get("data_url") or ""))
+        if token:
+            block.pop("data_url", None)
+            block["media_token"] = token
+    token = _cache_source_docx(binary)
+    if token:
+        document["_docx_meta"] = {"source_token": token}
+    return document
+
+
 class EditorHandler(BaseHTTPRequestHandler):
     @staticmethod
     def _content_disposition(filename: str) -> str:
@@ -177,6 +267,9 @@ class EditorHandler(BaseHTTPRequestHandler):
             return
         if route == "/api/resource-stats":
             self._resource_stats()
+            return
+        if route.startswith("/api/media/"):
+            self._serve_media(unquote(route.removeprefix("/api/media/")))
             return
         if route.startswith("/static/"):
             target = (STATIC_DIR / route.removeprefix("/static/")).resolve()
@@ -195,11 +288,21 @@ class EditorHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         route = self.path.split("?", 1)[0]
-        length = int(self.headers.get("Content-Length", "0"))
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._send_json({"error": "Invalid Content-Length."}, HTTPStatus.BAD_REQUEST)
+            return
+        if length < 0 or length > MAX_IMPORT_DOCX_BYTES:
+            self._send_json({"error": "Request is too large."}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            return
         raw = self.rfile.read(length) if length else b""
 
         if route == "/api/stage-save":
             self._stage_save(raw)
+            return
+        if route == "/api/import-docx":
+            self._import_docx(raw)
             return
 
         try:
@@ -208,9 +311,6 @@ class EditorHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Invalid JSON payload."}, HTTPStatus.BAD_REQUEST)
             return
 
-        if route == "/api/import-docx":
-            self._import_docx(payload)
-            return
         if route == "/api/pick-open-docx":
             self._pick_open_docx()
             return
@@ -234,14 +334,12 @@ class EditorHandler(BaseHTTPRequestHandler):
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
-    def _import_docx(self, payload: dict) -> None:
-        data_b64 = payload.get("data")
-        if not data_b64:
+    def _import_docx(self, binary: bytes) -> None:
+        if not binary:
             self._send_json({"error": "Missing DOCX data."}, HTTPStatus.BAD_REQUEST)
             return
         try:
-            binary = base64.b64decode(data_b64)
-            document = docx_bytes_to_document(binary)
+            document = _import_document(binary)
         except Exception as exc:
             self._send_json({"error": f"Failed to open DOCX: {exc}"}, HTTPStatus.BAD_REQUEST)
             return
@@ -253,7 +351,7 @@ class EditorHandler(BaseHTTPRequestHandler):
         if not filename.lower().endswith(".docx"):
             filename += ".docx"
         try:
-            binary = document_to_docx_bytes(document)
+            binary = document_to_docx_bytes(_prepare_document_for_export(document), _source_docx_for_document(document))
         except Exception as exc:
             self._send_json({"error": f"Failed to save DOCX: {exc}"}, HTTPStatus.BAD_REQUEST)
             return
@@ -271,7 +369,7 @@ class EditorHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "cancelled": True})
                 return
             path = Path(selected).resolve()
-            document = docx_bytes_to_document(path.read_bytes())
+            document = _import_document(path.read_bytes())
         except Exception as exc:
             self._send_json({"ok": False, "error": f"Failed to open DOCX: {exc}"}, HTTPStatus.BAD_REQUEST)
             return
@@ -299,7 +397,8 @@ class EditorHandler(BaseHTTPRequestHandler):
             return
         try:
             path = _absolute_windows_path(str(raw_path))
-            binary = document_to_docx_bytes(payload.get("document") or {})
+            document = payload.get("document") or {}
+            binary = document_to_docx_bytes(_prepare_document_for_export(document), _source_docx_for_document(document))
             staged_path = _create_staged_save(path.name, binary)
             _atomic_write(path, binary)
         except Exception as exc:
@@ -334,17 +433,9 @@ class EditorHandler(BaseHTTPRequestHandler):
         self._send_json({"ok": True})
 
     def _debug_log(self, payload: dict) -> None:
-        try:
-            event = str(payload.get("event") or "").strip() or "unknown"
-            data = payload.get("data")
-            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            line = json.dumps({"ts": stamp, "event": event, "data": data}, ensure_ascii=False)
-            with DEBUG_LOG_PATH.open("a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
-        except Exception as exc:
-            self._send_json({"ok": False, "error": str(exc), "path": str(DEBUG_LOG_PATH)}, HTTPStatus.INTERNAL_SERVER_ERROR)
-            return
-        self._send_json({"ok": True, "path": str(DEBUG_LOG_PATH)})
+        # Kept as a harmless compatibility endpoint for older frontends.  Editing
+        # content must never be persisted as diagnostic output.
+        self._send_json({"ok": True, "enabled": False})
 
     def _resource_stats(self) -> None:
         try:
@@ -357,6 +448,19 @@ class EditorHandler(BaseHTTPRequestHandler):
             self._send_json(empty_all_working_sets())
         except Exception as exc:
             self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def _serve_media(self, token: str) -> None:
+        media = _media_for_token(token)
+        if media is None:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        mime, binary = media
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(binary)))
+        self.send_header("Cache-Control", "private, max-age=300")
+        self.end_headers()
+        self.wfile.write(binary)
 
     def _serve_file(self, path: Path, content_type: str) -> None:
         if not path.exists() or not path.is_file():
@@ -409,10 +513,6 @@ def create_server(preferred_port: int) -> tuple[ThreadingHTTPServer, int]:
 
 def main() -> None:
     preferred_port = int(os.environ.get("MINI_DOCX_PORT", PORT))
-    try:
-        DEBUG_LOG_PATH.write_text("", encoding="utf-8")
-    except Exception:
-        pass
     server, port = create_server(preferred_port)
     url = f"http://{HOST}:{port}"
     if port != preferred_port:

@@ -901,24 +901,6 @@ def _image_paragraph(rel_id: str, width_px: int, height_px: int, name: str) -> E
     return paragraph
 
 
-def _decode_meta_xml(value: object) -> bytes | None:
-    if not value:
-        return None
-    try:
-        return base64.b64decode(str(value))
-    except Exception:
-        return None
-
-
-def _decode_meta_docx(value: object) -> bytes | None:
-    payload = _decode_meta_xml(value)
-    if payload is None:
-        return None
-    if payload[:2] != b"PK":
-        return None
-    return payload
-
-
 def _meta_flag(value: object) -> bool:
     if isinstance(value, bool):
         return value
@@ -1180,11 +1162,10 @@ def _patch_docx_numbering(docx_bytes: bytes, numbering_xml: bytes | None) -> byt
     )
 
 
-def document_to_docx_bytes(document: dict) -> bytes:
+def document_to_docx_bytes(document: dict, preserved_docx: bytes | None = None) -> bytes:
     blocks = document.get("blocks") or []
     styles = _style_map(_normalize_styles(document.get("styles")))
     meta = document.get("_docx_meta") if isinstance(document.get("_docx_meta"), dict) else {}
-    preserved_docx = _decode_meta_docx(meta.get("source_docx_b64"))
     styles_dirty = _meta_flag(meta.get("styles_dirty"))
     numbering_dirty = _meta_flag(meta.get("numbering_dirty"))
     content_dirty = _meta_flag(meta.get("content_dirty"))
@@ -1213,13 +1194,18 @@ def document_to_docx_bytes(document: dict) -> bytes:
         if block_type == "image":
             paragraph = doc.add_paragraph()
             data_url = str(block.get("data_url") or "")
-            if "," not in data_url:
+            image_bytes = block.get("_image_bytes")
+            if isinstance(image_bytes, bytes):
+                payload = image_bytes
+            elif "," in data_url:
+                _, encoded = data_url.split(",", 1)
+                payload = base64.b64decode(encoded)
+            else:
                 continue
-            _, payload = data_url.split(",", 1)
             width_px = max(int(block.get("width_px") or 320), 1)
             height_px = max(int(block.get("height_px") or 180), 1)
             paragraph.add_run().add_picture(
-                io.BytesIO(base64.b64decode(payload)),
+                io.BytesIO(payload),
                 width=Inches(width_px / 96),
                 height=Inches(height_px / 96),
             )

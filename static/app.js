@@ -109,6 +109,9 @@ let editorUndoStack = [];
 let editorRedoStack = [];
 let suppressEditorHistory = false;
 let debugLogSequence = 0;
+let inputHistorySnapshotRecorded = false;
+let inputHistoryResetTimer = null;
+let editorRefreshTimer = null;
 let activePrimaryOutlineElement = null;
 let activePrimaryOutlineBlockIndex = null;
 let primaryOutlineWasManuallySelected = false;
@@ -130,7 +133,10 @@ const MAX_RECENT_FILES = 12;
 const NUMBER_FORMATS = new Set(["decimal", "upperLetter", "lowerLetter", "upperRoman", "lowerRoman"]);
 const DEFAULT_NUMBER_FORMAT = "decimal";
 const MAX_NUMBERING_LEVEL = 8;
-const MAX_EDITOR_HISTORY = 200;
+const MAX_EDITOR_HISTORY = 80;
+const MAX_EDITOR_HISTORY_BYTES = 8 * 1024 * 1024;
+const INPUT_HISTORY_DEBOUNCE_MS = 750;
+const EDITOR_REFRESH_DEBOUNCE_MS = 180;
 const NUMBERING_LEVEL_INDENT_PX = 24;
 const MIN_NUMBERING_PREFIX_PX = 18;
 const DEFAULT_FONT_FAMILY = '"Times New Roman", SimSun';
@@ -144,7 +150,8 @@ const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 520;
 const SIDEBAR_WIDTH_STEP = 16;
 const ALLOWED_STYLE_ORDER = ["Normal", "Heading1", "Heading2", "Heading3", "NormalL1", "NormalL2", "NormalL3"];
-const RESOURCE_REFRESH_MS = 2000;
+const RESOURCE_REFRESH_MS = 5000;
+const DEBUG_LOG_ENABLED = false;
 const DEFAULT_SHORTCUTS = {
   bold: "Ctrl+B",
   italic: "Ctrl+I",
@@ -159,6 +166,7 @@ const DEFAULT_SHORTCUTS = {
 };
 
 function debugLog(event, data = {}) {
+  if (!DEBUG_LOG_ENABLED) return;
   debugLogSequence += 1;
   const payload = {
     event,
@@ -451,8 +459,8 @@ async function cleanResources() {
 function cloneDocxMeta(meta) {
   if (!meta || typeof meta !== "object") return null;
   const next = {};
-  if (typeof meta.source_docx_b64 === "string" && meta.source_docx_b64) {
-    next.source_docx_b64 = meta.source_docx_b64;
+  if (typeof meta.source_token === "string" && meta.source_token) {
+    next.source_token = meta.source_token;
   }
   if (typeof meta.styles_xml_b64 === "string" && meta.styles_xml_b64) {
     next.styles_xml_b64 = meta.styles_xml_b64;
@@ -591,32 +599,55 @@ function placeCaretAtEditorEnd() {
 }
 
 function createEditorSnapshot() {
-  return {
+  const snapshot = {
     html: editor.innerHTML,
     selection: serializeEditorSelection(),
   };
+  snapshot.bytes = new Blob([snapshot.html]).size;
+  return snapshot;
 }
 
 function trimEditorHistoryStacks() {
-  if (editorUndoStack.length > MAX_EDITOR_HISTORY) {
-    editorUndoStack = editorUndoStack.slice(editorUndoStack.length - MAX_EDITOR_HISTORY);
-  }
-  if (editorRedoStack.length > MAX_EDITOR_HISTORY) {
-    editorRedoStack = editorRedoStack.slice(editorRedoStack.length - MAX_EDITOR_HISTORY);
+  const trimStack = (stack) => {
+    let totalBytes = stack.reduce((sum, snapshot) => sum + Number(snapshot.bytes || snapshot.html?.length || 0), 0);
+    while (stack.length > MAX_EDITOR_HISTORY || (totalBytes > MAX_EDITOR_HISTORY_BYTES && stack.length > 1)) {
+      const removed = stack.shift();
+      totalBytes -= Number(removed?.bytes || removed?.html?.length || 0);
+    }
+    return stack;
+  };
+  editorUndoStack = trimStack(editorUndoStack);
+  editorRedoStack = trimStack(editorRedoStack);
+}
+
+function resetInputHistoryCoalescing() {
+  inputHistorySnapshotRecorded = false;
+  if (inputHistoryResetTimer) {
+    window.clearTimeout(inputHistoryResetTimer);
+    inputHistoryResetTimer = null;
   }
 }
 
-function recordUndoSnapshot() {
+function recordUndoSnapshot({ coalesceInput = false } = {}) {
   if (isLoadingDocument || suppressEditorHistory) return;
+  if (coalesceInput && inputHistorySnapshotRecorded) return;
   const snapshot = createEditorSnapshot();
   const last = editorUndoStack[editorUndoStack.length - 1];
   if (last && last.html === snapshot.html) return;
   editorUndoStack.push(snapshot);
   editorRedoStack = [];
   trimEditorHistoryStacks();
+  if (coalesceInput) {
+    inputHistorySnapshotRecorded = true;
+    if (inputHistoryResetTimer) window.clearTimeout(inputHistoryResetTimer);
+    inputHistoryResetTimer = window.setTimeout(resetInputHistoryCoalescing, INPUT_HISTORY_DEBOUNCE_MS);
+  } else {
+    resetInputHistoryCoalescing();
+  }
 }
 
 function resetEditorHistory() {
+  resetInputHistoryCoalescing();
   editorUndoStack = [];
   editorRedoStack = [];
   recordUndoSnapshot();
@@ -1620,15 +1651,6 @@ function applyParagraphAlignment(command) {
   syncParagraphStyleSelect();
   const labels = { left: "左对齐", center: "居中", right: "右对齐", justify: "两端对齐" };
   setStatus(`已应用${labels[alignment]}（${blocks.length} 段）`);
-}
-
-function toBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 function replaceTag(element, tagName) {
@@ -3017,8 +3039,16 @@ function handleEditorInput() {
   const deleteSnapshot = pendingDeleteStructure;
   pendingDeleteStructure = null;
   if (deleteSnapshot) restoreStyleAfterDeletedHeading(deleteSnapshot);
-  refreshOutline();
+  scheduleEditorRefresh();
   markDirty();
+}
+
+function scheduleEditorRefresh() {
+  if (editorRefreshTimer) window.clearTimeout(editorRefreshTimer);
+  editorRefreshTimer = window.setTimeout(() => {
+    editorRefreshTimer = null;
+    refreshOutline();
+  }, EDITOR_REFRESH_DEBOUNCE_MS);
 }
 
 function slugify(text, fallback) {
@@ -3853,8 +3883,12 @@ function editorToDocument() {
       blocks.push({
         type: "image",
         name: img.dataset.name || img.alt || "image.png",
-        mime: (img.src.match(/^data:([^;]+);base64,/) || [])[1] || "image/png",
-        data_url: img.src,
+        ...(img.dataset.mediaToken
+          ? { media_token: img.dataset.mediaToken }
+          : {
+            mime: (img.src.match(/^data:([^;]+);base64,/) || [])[1] || "image/png",
+            data_url: img.src,
+          }),
         width_px: Math.round(img.getBoundingClientRect().width) || img.naturalWidth || 320,
         height_px: Math.round(img.getBoundingClientRect().height) || img.naturalHeight || 180,
       });
@@ -3964,9 +3998,10 @@ function loadDocument(documentData) {
       const p = document.createElement("p");
       const img = document.createElement("img");
       p.dataset.styleId = "Normal";
-      img.src = block.data_url;
+      img.src = block.media_token ? `/api/media/${encodeURIComponent(block.media_token)}` : block.data_url;
       img.alt = block.name || "image";
       img.dataset.name = block.name || "image.png";
+      if (block.media_token) img.dataset.mediaToken = block.media_token;
       if (block.width_px) img.style.width = `${block.width_px}px`;
       if (block.height_px) img.style.height = "auto";
       p.appendChild(img);
@@ -4271,11 +4306,13 @@ function updateStyleFromSelection() {
 
 async function openDocx(file) {
   setStatus(`正在打开 ${file.name}...`);
-  const dataUrl = await toBase64(file);
   const response = await fetch("/api/import-docx", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: file.name, data: dataUrl.split(",", 2)[1] }),
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "X-Filename": encodeURIComponent(file.name || "mini-docx.docx"),
+    },
+    body: file,
   });
   const result = await response.json();
   if (!response.ok) {
@@ -4680,9 +4717,9 @@ editor.addEventListener("beforeinput", (event) => {
   if (suppressEditorHistory || isLoadingDocument) return;
   if (event.inputType === "historyUndo" || event.inputType === "historyRedo") return;
   pendingDeleteStructure = (event.inputType || "").startsWith("delete") ? captureDeleteStructure() : null;
-  recordUndoSnapshot();
+  recordUndoSnapshot({ coalesceInput: true });
 });
-editor.addEventListener("keyup", refreshOutline);
+editor.addEventListener("keyup", scheduleEditorRefresh);
 editor.addEventListener("click", syncParagraphStyleSelect);
 editor.addEventListener("click", (event) => {
   const block = event.target.closest && event.target.closest("p, h1, h2, h3");
@@ -4693,13 +4730,13 @@ editor.addEventListener("click", (event) => {
 editor.addEventListener("paste", async (event) => {
   const clipboard = event.clipboardData;
   if (!clipboard) {
-    window.setTimeout(refreshOutline, 20);
+    window.setTimeout(scheduleEditorRefresh, 20);
     return;
   }
   const items = Array.from(clipboard.items || []);
   const imageItems = items.filter((item) => item.type && item.type.startsWith("image/"));
   if (!imageItems.length) {
-    window.setTimeout(refreshOutline, 20);
+    window.setTimeout(scheduleEditorRefresh, 20);
     return;
   }
   event.preventDefault();
@@ -4886,8 +4923,16 @@ if (saveStyleBtn) {
 cleanResourcesBtn?.addEventListener("click", cleanResources);
 collapseAllChaptersBtn?.addEventListener("click", () => setAllChaptersCollapsed(true));
 expandAllChaptersBtn?.addEventListener("click", () => setAllChaptersCollapsed(false));
-refreshResourceStats();
-window.setInterval(refreshResourceStats, RESOURCE_REFRESH_MS);
+let resourceRefreshTimer = null;
+function scheduleResourceRefresh() {
+  if (resourceRefreshTimer) window.clearInterval(resourceRefreshTimer);
+  resourceRefreshTimer = null;
+  if (document.hidden) return;
+  refreshResourceStats();
+  resourceRefreshTimer = window.setInterval(refreshResourceStats, RESOURCE_REFRESH_MS);
+}
+document.addEventListener("visibilitychange", scheduleResourceRefresh);
+scheduleResourceRefresh();
 populateStyleSelect("Normal");
 renderShortcutInputs();
 setServerAddress();
