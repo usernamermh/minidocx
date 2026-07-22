@@ -356,7 +356,7 @@ body {
   background: transparent;
   color: var(--muted);
   text-align: left;
-  padding: 3px 0 3px 12px;
+  padding: 5px 0;
   border-radius: 0;
   cursor: pointer;
   line-height: 1.45;
@@ -371,8 +371,37 @@ body {
   font-weight: 600;
 }
 
-.outline-item.level-2 { margin-left: 10px; }
-.outline-item.level-3 { margin-left: 20px; }
+.outline-item[draggable="true"] {
+  cursor: grab;
+}
+
+.outline-item[draggable="true"]:active,
+.outline-item.is-dragging {
+  cursor: grabbing;
+}
+
+.outline-item.is-dragging {
+  opacity: 0.45;
+}
+
+.outline-item.drag-before,
+.outline-item.drag-after {
+  position: relative;
+}
+
+.outline-item.drag-before::after,
+.outline-item.drag-after::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.outline-item.drag-before::after { top: -2px; }
+.outline-item.drag-after::after { bottom: -2px; }
 
 #editor > .chapter-folded-content {
   display: none !important;
@@ -394,7 +423,7 @@ body {
   padding: 0;
   transform: translateY(-50%);
   border: 1px solid rgba(33, 223, 243, 0.38);
-  border-radius: 7px;
+  border-radius: 5px;
   background: rgba(10, 9, 22, 0.78);
   color: var(--accent);
   line-height: 1;
@@ -781,6 +810,22 @@ select:hover,
   margin: 0;
   line-height: 1.5;
   white-space: pre-wrap;
+}
+
+/* L1–L5 retain semantic paragraph indentation, while this connector makes
+   the otherwise blank indent area readable as hierarchy in the editor. */
+.editor > [data-outline-indent] {
+  position: relative;
+}
+
+.editor > [data-outline-indent]:not([data-outline-indent="0"])::before {
+  content: "";
+  position: absolute;
+  top: 0.82em;
+  left: calc(-1 * var(--outline-indent));
+  width: var(--outline-indent);
+  border-top: 1px solid rgba(83, 65, 111, 0.42);
+  pointer-events: none;
 }
 
 .editor .numbered-paragraph {

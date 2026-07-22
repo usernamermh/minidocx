@@ -2,6 +2,7 @@ import io
 from pathlib import Path
 import unittest
 import zipfile
+import xml.etree.ElementTree as ET
 
 from docx import Document
 
@@ -77,6 +78,12 @@ class LineBreakRoundTripTests(unittest.TestCase):
         imported = docx_bytes_to_document(exported)
 
         self.assertEqual(paragraph_texts(imported), ["alpha", "beta"])
+        with zipfile.ZipFile(io.BytesIO(exported), "r") as archive:
+            root = ET.fromstring(archive.read("word/document.xml"))
+        ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+        paragraphs = root.findall(".//w:body/w:p", ns)
+        self.assertEqual(len(paragraphs), 2)
+        self.assertFalse(root.findall(".//w:br", ns))
 
 
 if __name__ == "__main__":

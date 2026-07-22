@@ -45,15 +45,18 @@ STYLE_ALIAS_MAP = {
     "normall1": "NormalL1",
     "normal l1": "NormalL1",
     "normal1": "NormalL1",
-    "l1": "NormalL1",
     "normall2": "NormalL2",
     "normal l2": "NormalL2",
     "normal2": "NormalL2",
-    "l2": "NormalL2",
     "normall3": "NormalL3",
     "normal l3": "NormalL3",
     "normal3": "NormalL3",
-    "l3": "NormalL3",
+    "l0": "Heading1",
+    "l1": "Heading2",
+    "l2": "Heading3",
+    "l3": "NormalL1",
+    "l4": "NormalL2",
+    "l5": "NormalL3",
     "正文": "Normal",
     "h1": "Heading1",
     "heading1": "Heading1",
@@ -530,6 +533,19 @@ def _make_style(
     }
 
 
+def _style_indent_twips(style: dict | None) -> int:
+    if not isinstance(style, dict):
+        return 0
+    try:
+        outline_level = max(int(style.get("outline_level")), 0)
+    except (TypeError, ValueError):
+        return 0
+    # One outline level equals one em of that style's own font size: L0 has
+    # no indent, L1 has one, through L5 with five. It is never text padding.
+    descriptor = _normalize_descriptor(style.get("descriptor"))
+    return int(round(outline_level * float(descriptor[1]) * 20))
+
+
 def _normalize_spacing(value: object, fallback: int) -> int:
     try:
         raw = fallback if value is None else value
@@ -549,12 +565,12 @@ def _normalize_line_spacing(value: object, fallback: float = DEFAULT_LINE_SPACIN
 def _builtin_styles() -> list[dict]:
     return [
         _make_style("Normal", "Normal", [DEFAULT_FONT_FAMILY, 12, False, False, False], is_default=True),
-        _make_style("Heading1", "Heading 1", [DEFAULT_FONT_FAMILY, 20, True, False, False], outline_level=0, based_on="Normal"),
-        _make_style("Heading2", "Heading 2", [DEFAULT_FONT_FAMILY, 16, True, False, False], outline_level=1, based_on="Normal"),
-        _make_style("Heading3", "Heading 3", [DEFAULT_FONT_FAMILY, 14, True, False, False], outline_level=2, based_on="Normal"),
-        _make_style("NormalL1", "Normal L1", [DEFAULT_FONT_FAMILY, 10, True, False, False], outline_level=3, based_on="Normal"),
-        _make_style("NormalL2", "Normal L2", [DEFAULT_FONT_FAMILY, 10, True, True, False], outline_level=4, based_on="Normal"),
-        _make_style("NormalL3", "Normal L3", [DEFAULT_FONT_FAMILY, 10, True, True, True], outline_level=5, based_on="Normal"),
+        _make_style("Heading1", "L0", [DEFAULT_FONT_FAMILY, 20, True, False, False], outline_level=0, based_on="Normal"),
+        _make_style("Heading2", "L1", [DEFAULT_FONT_FAMILY, 16, True, False, False], outline_level=1, based_on="Normal"),
+        _make_style("Heading3", "L2", [DEFAULT_FONT_FAMILY, 14, True, False, False], outline_level=2, based_on="Normal"),
+        _make_style("NormalL1", "L3", [DEFAULT_FONT_FAMILY, 10, True, False, False], outline_level=3, based_on="Normal"),
+        _make_style("NormalL2", "L4", [DEFAULT_FONT_FAMILY, 10, True, True, False], outline_level=4, based_on="Normal"),
+        _make_style("NormalL3", "L5", [DEFAULT_FONT_FAMILY, 10, True, True, True], outline_level=5, based_on="Normal"),
     ]
 
 
@@ -738,6 +754,9 @@ def _styles_xml(styles_payload: dict | None = None) -> bytes:
         outline_level = style.get("outline_level")
         if outline_level is not None:
             ET.SubElement(p_pr, qn("w", "outlineLvl"), {qn("w", "val"): str(outline_level)})
+        style_indent_twips = _style_indent_twips(style)
+        if style_indent_twips:
+            ET.SubElement(p_pr, qn("w", "ind"), {qn("w", "left"): str(style_indent_twips)})
         style_numbering = _normalize_style_numbering(style.get("numbering"))
         if style_numbering is not None:
             num_pr = ET.SubElement(p_pr, qn("w", "numPr"))
@@ -921,28 +940,18 @@ def _ensure_docx_paragraph_style(doc, style_info: dict, style_name_by_id: dict[s
     style_id = style_info["id"]
     if style_id in style_name_by_id:
         return style_name_by_id[style_id]
-    builtin_name = {
-        "Normal": "Normal",
-        "Heading1": "Heading 1",
-        "Heading2": "Heading 2",
-        "Heading3": "Heading 3",
-    }.get(style_id)
-    if builtin_name:
-        style_name = builtin_name
-        style = doc.styles[builtin_name]
-    else:
-        style_name = str(style_info.get("name") or style_id)
-        try:
-            style = doc.styles[style_name]
-        except KeyError:
-            style = doc.styles.add_style(style_name, WD_STYLE_TYPE.PARAGRAPH)
+    style_name = "Normal" if style_id == "Normal" else str(style_info.get("name") or style_id)
+    try:
+        style = doc.styles[style_name]
+    except KeyError:
+        style = doc.styles.add_style(style_name, WD_STYLE_TYPE.PARAGRAPH)
     based_on = str(style_info.get("based_on") or "").strip()
     if based_on:
         base_name = style_name_by_id.get(based_on) or {
             "Normal": "Normal",
-            "Heading1": "Heading 1",
-            "Heading2": "Heading 2",
-            "Heading3": "Heading 3",
+            "Heading1": "L0",
+            "Heading2": "L1",
+            "Heading3": "L2",
         }.get(based_on)
         if base_name:
             try:
@@ -961,6 +970,7 @@ def _ensure_docx_paragraph_style(doc, style_info: dict, style_name_by_id: dict[s
     style.paragraph_format.line_spacing = _normalize_line_spacing(style_info.get("line_spacing"), DEFAULT_LINE_SPACING)
     style.paragraph_format.space_before = Pt(_normalize_spacing(style_info.get("space_before"), DEFAULT_PARAGRAPH_SPACING))
     style.paragraph_format.space_after = Pt(_normalize_spacing(style_info.get("space_after"), DEFAULT_PARAGRAPH_SPACING))
+    style.paragraph_format.left_indent = Twips(_style_indent_twips(style_info))
     outline_level = style_info.get("outline_level")
     p_pr = style.element.get_or_add_pPr()
     outline_node = p_pr.find(docx_qn("w:outlineLvl"))
@@ -1051,7 +1061,9 @@ def _apply_docx_paragraph_format(paragraph, block: dict, style_info: dict | None
         block.get("line_spacing"), float((style_info or {}).get("line_spacing", DEFAULT_LINE_SPACING))
     )
     indent_level = _normalize_indent_level(block.get("indent_level"))
-    paragraph.paragraph_format.left_indent = Pt((BLOCK_INDENT_STEP_TWIPS * indent_level) / 20)
+    if indent_level:
+        base_indent_twips = _style_indent_twips(style_info)
+        paragraph.paragraph_format.left_indent = Twips(base_indent_twips + (BLOCK_INDENT_STEP_TWIPS * indent_level))
 
 
 def _write_docx_runs(paragraph, block: dict, style_info: dict | None) -> None:
@@ -1092,7 +1104,12 @@ def _write_docx_table(doc, block: dict, styles: dict[str, dict], style_name_by_i
             tc_w.set(docx_qn("w:type"), "dxa")
             tc_w.set(docx_qn("w:w"), str(int(cell_data.get("width") or 2400)))
             paragraphs = cell_data.get("paragraphs") or [{"type": "paragraph", "style_id": "Normal", "alignment": "align_left", "runs": []}]
-            for paragraph_index, paragraph_block in enumerate(paragraphs):
+            expanded_paragraphs = [
+                split_block
+                for paragraph_block in paragraphs
+                for split_block in _split_paragraph_block_at_breaks(paragraph_block)
+            ]
+            for paragraph_index, paragraph_block in enumerate(expanded_paragraphs):
                 paragraph = cell.paragraphs[0] if paragraph_index == 0 else cell.add_paragraph()
                 style_id = _style_ref_for_block(paragraph_block, styles)
                 style_info = styles.get(style_id, styles.get("Normal"))
@@ -1212,7 +1229,8 @@ def document_to_docx_bytes(document: dict, preserved_docx: bytes | None = None) 
         elif block_type == "table":
             _write_docx_table(doc, block, styles, style_name_by_id, list_id_to_num_id)
         else:
-            _write_docx_paragraph(doc, doc, block, styles, style_name_by_id, list_id_to_num_id)
+            for paragraph_block in _split_paragraph_block_at_breaks(block):
+                _write_docx_paragraph(doc, doc, paragraph_block, styles, style_name_by_id, list_id_to_num_id)
 
     memory = io.BytesIO()
     doc.save(memory)

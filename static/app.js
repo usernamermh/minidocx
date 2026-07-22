@@ -118,6 +118,9 @@ let primaryOutlineWasManuallySelected = false;
 let activeSecondaryOutlineElement = null;
 let activeSecondaryOutlineBlockIndex = null;
 let secondaryOutlineWasManuallySelected = false;
+let outlineDragItem = null;
+let chapterFoldOverlayFrame = null;
+let pendingFoldOverlayHeadings = null;
 
 const SHORTCUT_STORAGE_KEY = "mini_docx_shortcuts";
 const OUTLINE_FILTER_KEY = "mini_docx_outline_filter";
@@ -725,7 +728,7 @@ function updateFileUiState() {
 function applyEditorZoom() {
   editor.style.zoom = String(editorZoom);
   requestAnimationFrame(() => {
-    positionChapterFoldOverlay(Array.from(editor.children).filter(isTopLevelChapterHeading));
+    positionChapterFoldOverlay(visibleOutlineHeadings());
   });
 }
 
@@ -1310,12 +1313,12 @@ function defaultStyles() {
   return {
     paragraph: [
       { id: "Normal", name: "Normal", descriptor: [DEFAULT_FONT_FAMILY, 12, false, false, false], alignment: "left", outline_level: null, is_default: true, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "Heading1", name: "Heading 1", descriptor: [DEFAULT_FONT_FAMILY, 20, true, false, false], alignment: "left", outline_level: 0, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "Heading2", name: "Heading 2", descriptor: [DEFAULT_FONT_FAMILY, 16, true, false, false], alignment: "left", outline_level: 1, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "Heading3", name: "Heading 3", descriptor: [DEFAULT_FONT_FAMILY, 14, true, false, false], alignment: "left", outline_level: 2, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "NormalL1", name: "Normal L1", descriptor: [DEFAULT_FONT_FAMILY, 10, true, false, false], alignment: "left", outline_level: 3, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "NormalL2", name: "Normal L2", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, false], alignment: "left", outline_level: 4, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
-      { id: "NormalL3", name: "Normal L3", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, true], alignment: "left", outline_level: 5, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "Heading1", name: "L0", descriptor: [DEFAULT_FONT_FAMILY, 20, true, false, false], alignment: "left", outline_level: 0, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "Heading2", name: "L1", descriptor: [DEFAULT_FONT_FAMILY, 16, true, false, false], alignment: "left", outline_level: 1, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "Heading3", name: "L2", descriptor: [DEFAULT_FONT_FAMILY, 14, true, false, false], alignment: "left", outline_level: 2, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "NormalL1", name: "L3", descriptor: [DEFAULT_FONT_FAMILY, 10, true, false, false], alignment: "left", outline_level: 3, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "NormalL2", name: "L4", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, false], alignment: "left", outline_level: 4, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
+      { id: "NormalL3", name: "L5", descriptor: [DEFAULT_FONT_FAMILY, 10, true, true, true], alignment: "left", outline_level: 5, is_default: false, line_spacing: DEFAULT_LINE_SPACING, space_before: DEFAULT_PARAGRAPH_SPACING, space_after: DEFAULT_PARAGRAPH_SPACING },
     ],
   };
 }
@@ -1587,8 +1590,13 @@ function normalizeBlockIndentLevel(value) {
 function applyBlockIndent(element, indentLevel) {
   if (!element) return;
   const level = normalizeBlockIndentLevel(indentLevel);
+  const style = getStyleById(element.dataset.styleId || styleIdFromTag(element.tagName));
+  const styleIndent = Math.max(Number(style?.outline_level) || 0, 0);
   element.dataset.indentLevel = String(level);
-  element.style.marginLeft = level > 0 ? `${level * BLOCK_INDENT_STEP_EM}em` : "0";
+  // Heading indentation belongs to the L0–L5 style, not to whitespace that
+  // users type into the title. Manual paragraph indentation is additive.
+  const totalIndent = styleIndent + (level * BLOCK_INDENT_STEP_EM);
+  element.style.marginLeft = totalIndent > 0 ? `${totalIndent}em` : "0";
 }
 
 function indentLevelFromElement(element) {
@@ -2089,10 +2097,18 @@ function fontSpecFromComputedStyle(style) {
   return `${fontStyle} ${fontVariant} ${fontWeight} ${fontSize} ${fontFamily}`;
 }
 
-function estimateNumberingLabelWidthPx(block, label) {
+function estimateNumberingLabelWidthPx(block, label, fontSpecCache = null) {
   const text = String(label || "");
   if (numberingMeasureContext) {
-    numberingMeasureContext.font = fontSpecFromComputedStyle(window.getComputedStyle(block || editor));
+    const cacheKey = block
+      ? `${block.dataset.styleId || block.tagName}|${block.style.fontFamily}|${block.style.fontSize}|${block.style.fontWeight}|${block.style.fontStyle}`
+      : "editor";
+    let fontSpec = fontSpecCache?.get(cacheKey);
+    if (!fontSpec) {
+      fontSpec = fontSpecFromComputedStyle(window.getComputedStyle(block || editor));
+      fontSpecCache?.set(cacheKey, fontSpec);
+    }
+    numberingMeasureContext.font = fontSpec;
   }
   const measured = numberingMeasureContext ? numberingMeasureContext.measureText(text).width : (text.length * 8);
   return Math.max(Math.ceil(measured) + 1, MIN_NUMBERING_PREFIX_PX);
@@ -2101,6 +2117,7 @@ function estimateNumberingLabelWidthPx(block, label) {
 function refreshNumberingVisuals() {
   const states = new Map();
   const visualItems = [];
+  const fontSpecCache = new Map();
   paragraphElementsInEditor().forEach((block) => {
     const numbering = numberingFromElement(block);
     if (!numbering) {
@@ -2145,7 +2162,7 @@ function refreshNumberingVisuals() {
       label,
       visualLevel: numberingVisualLevel(block, numbering),
       isHeading: isHeadingStyleBlock(block),
-      prefixWidthPx: estimateNumberingLabelWidthPx(block, label),
+      prefixWidthPx: estimateNumberingLabelWidthPx(block, label, fontSpecCache),
     });
   });
 
@@ -2565,6 +2582,14 @@ function applyStyleVisuals(element, style) {
   target.style.fontStyle = style.descriptor[3] ? "italic" : "normal";
   target.style.textDecoration = style.descriptor[4] ? "underline" : "none";
   target.style.textAlign = style.alignment || "left";
+  const outlineLevel = Number(style.outline_level);
+  if (Number.isFinite(outlineLevel) && outlineLevel >= 0) {
+    target.dataset.outlineIndent = String(outlineLevel);
+    target.style.setProperty("--outline-indent", `${outlineLevel}em`);
+  } else {
+    delete target.dataset.outlineIndent;
+    target.style.removeProperty("--outline-indent");
+  }
   applyParagraphMetrics(target, {
     lineSpacing: style.line_spacing || DEFAULT_LINE_SPACING,
     spaceBefore: style.space_before ?? DEFAULT_PARAGRAPH_SPACING,
@@ -3035,11 +3060,22 @@ function restoreStyleAfterDeletedHeading(snapshot) {
   }
 }
 
-function handleEditorInput() {
+function shouldRefreshDocumentChrome(event, deleteSnapshot) {
+  const inputType = String(event?.inputType || "");
+  if (deleteSnapshot || inputType === "insertParagraph" || inputType === "insertFromPaste" || inputType === "insertFromDrop") {
+    return true;
+  }
+  const block = currentBlockElement();
+  return isHeadingStyleBlock(block) || Boolean(numberingFromElement(block));
+}
+
+function handleEditorInput(event) {
   const deleteSnapshot = pendingDeleteStructure;
   pendingDeleteStructure = null;
   if (deleteSnapshot) restoreStyleAfterDeletedHeading(deleteSnapshot);
-  scheduleEditorRefresh();
+  if (shouldRefreshDocumentChrome(event, deleteSnapshot)) {
+    scheduleEditorRefresh();
+  }
   markDirty();
 }
 
@@ -3079,8 +3115,8 @@ function outlineLevelForElement(element) {
   return level !== null && level !== undefined && Number.isFinite(Number(level)) ? Number(level) : fallback;
 }
 
-function isTopLevelChapterHeading(element) {
-  return outlineLevelForElement(element) === 0;
+function isOutlineHeading(element) {
+  return Number.isFinite(outlineLevelForElement(element));
 }
 
 function directEditorChildForNode(node) {
@@ -3089,14 +3125,38 @@ function directEditorChildForNode(node) {
   return element?.parentElement === editor ? element : null;
 }
 
-function chapterHeadingForElement(element) {
+function collapsedOutlineAncestorsForElement(element) {
+  const directChild = directEditorChildForNode(element);
+  if (!directChild) return [];
+  const children = Array.from(editor.children);
+  const targetIndex = children.indexOf(directChild);
+  if (targetIndex < 0) return [];
+  const ancestors = [];
+  for (let index = 0; index <= targetIndex; index += 1) {
+    const candidate = children[index];
+    const level = outlineLevelForElement(candidate);
+    if (!Number.isFinite(level)) continue;
+    while (ancestors.length && ancestors[ancestors.length - 1].level >= level) ancestors.pop();
+    if (candidate.dataset.chapterCollapsed === "true") ancestors.push({ element: candidate, level });
+  }
+  return ancestors.map((ancestor) => ancestor.element);
+}
+
+function outlineHeadingForElement(element) {
   const directChild = directEditorChildForNode(element);
   if (!directChild) return null;
   const children = Array.from(editor.children);
-  for (let index = children.indexOf(directChild); index >= 0; index -= 1) {
-    if (isTopLevelChapterHeading(children[index])) return children[index];
+  const targetIndex = children.indexOf(directChild);
+  if (targetIndex < 0) return null;
+  const headings = [];
+  for (let index = 0; index <= targetIndex; index += 1) {
+    const candidate = children[index];
+    const level = outlineLevelForElement(candidate);
+    if (!Number.isFinite(level)) continue;
+    while (headings.length && headings[headings.length - 1].level >= level) headings.pop();
+    headings.push({ element: candidate, level });
   }
-  return null;
+  return headings[headings.length - 1]?.element || null;
 }
 
 function createChapterFoldToggle(heading) {
@@ -3111,7 +3171,7 @@ function createChapterFoldToggle(heading) {
     const collapsing = heading.dataset.chapterCollapsed !== "true";
     if (collapsing) {
       const selectionChild = directEditorChildForNode(window.getSelection()?.anchorNode);
-      if (selectionChild && chapterHeadingForElement(selectionChild) === heading && selectionChild !== heading) {
+      if (selectionChild && outlineHeadingForElement(selectionChild) === heading && selectionChild !== heading) {
         moveCaretToBlockStart(heading);
       }
     }
@@ -3151,52 +3211,89 @@ function positionChapterFoldOverlay(headings) {
   if (!chapterFoldOverlay) return;
   chapterFoldOverlay.replaceChildren();
   const stageRect = pageStage.getBoundingClientRect();
-  headings.forEach((heading) => {
+  const editorRect = editor.getBoundingClientRect();
+  const editorPaddingLeft = Number.parseFloat(window.getComputedStyle(editor).paddingLeft) || 0;
+  const fixedButtonLeft = editorRect.left - stageRect.left + pageStage.scrollLeft + editorPaddingLeft - 30;
+  // Measure every heading before modifying the overlay.  Appending one button
+  // at a time between getBoundingClientRect calls forces repeated reflow on
+  // large documents.
+  const placements = headings.map((heading) => {
     const headingRect = heading.getBoundingClientRect();
+    return {
+      heading,
+      left: fixedButtonLeft,
+      top: headingRect.top - stageRect.top + pageStage.scrollTop + (headingRect.height / 2),
+    };
+  });
+  const fragment = document.createDocumentFragment();
+  placements.forEach(({ heading, left, top }) => {
     const button = createChapterFoldToggle(heading);
-    button.style.left = `${headingRect.left - stageRect.left + pageStage.scrollLeft - 34}px`;
-    button.style.top = `${headingRect.top - stageRect.top + pageStage.scrollTop + (headingRect.height / 2)}px`;
-    chapterFoldOverlay.appendChild(button);
+    button.style.left = `${left}px`;
+    button.style.top = `${top}px`;
+    fragment.appendChild(button);
+  });
+  chapterFoldOverlay.appendChild(fragment);
+}
+
+function scheduleChapterFoldOverlay(headings) {
+  pendingFoldOverlayHeadings = headings;
+  if (chapterFoldOverlayFrame !== null) return;
+  chapterFoldOverlayFrame = window.requestAnimationFrame(() => {
+    chapterFoldOverlayFrame = null;
+    positionChapterFoldOverlay(pendingFoldOverlayHeadings || []);
+    pendingFoldOverlayHeadings = null;
   });
 }
 
-function applyChapterFolding() {
+function applyChapterFolding({ deferOverlay = false, normalizeHeadings = true } = {}) {
   removeLegacyChapterFoldControls();
-  let hideFollowing = false;
+  const collapsedAncestors = [];
   const headings = [];
   Array.from(editor.children).forEach((child) => {
-    if (isTopLevelChapterHeading(child)) {
-      hideFollowing = false;
-      normalizeEmptyChapterHeading(child);
-      headings.push(child);
-      child.classList.remove("chapter-folded-content");
+    const level = outlineLevelForElement(child);
+    if (Number.isFinite(level)) {
+      while (collapsedAncestors.length && collapsedAncestors[collapsedAncestors.length - 1].level >= level) {
+        collapsedAncestors.pop();
+      }
+      const isHidden = collapsedAncestors.length > 0;
+      if (normalizeHeadings) normalizeEmptyChapterHeading(child);
+      child.classList.toggle("chapter-folded-content", isHidden);
       child.classList.toggle("chapter-is-collapsed", child.dataset.chapterCollapsed === "true");
-      hideFollowing = child.dataset.chapterCollapsed === "true";
+      if (!isHidden) headings.push(child);
+      if (child.dataset.chapterCollapsed === "true") collapsedAncestors.push({ element: child, level });
       return;
     }
-    child.classList.toggle("chapter-folded-content", hideFollowing);
+    child.classList.toggle("chapter-folded-content", collapsedAncestors.length > 0);
   });
-  positionChapterFoldOverlay(headings);
+  if (deferOverlay) {
+    scheduleChapterFoldOverlay(headings);
+  } else {
+    positionChapterFoldOverlay(headings);
+  }
+}
+
+function visibleOutlineHeadings() {
+  return Array.from(editor.children).filter((child) => isOutlineHeading(child) && !child.classList.contains("chapter-folded-content"));
 }
 
 function setAllChaptersCollapsed(collapsed) {
-  const headings = Array.from(editor.children).filter(isTopLevelChapterHeading);
+  const headings = Array.from(editor.children).filter(isOutlineHeading);
   headings.forEach((heading) => {
     heading.dataset.chapterCollapsed = collapsed ? "true" : "false";
   });
   if (collapsed) {
     const selectedChild = directEditorChildForNode(window.getSelection()?.anchorNode);
-    const selectedHeading = chapterHeadingForElement(selectedChild);
+    const selectedHeading = outlineHeadingForElement(selectedChild);
     if (selectedHeading && selectedChild !== selectedHeading) moveCaretToBlockStart(selectedHeading);
   }
-  applyChapterFolding();
-  setStatus(collapsed ? `已折叠 ${headings.length} 个大章节。` : `已展开 ${headings.length} 个大章节。`);
+  applyChapterFolding({ deferOverlay: true, normalizeHeadings: false });
+  setStatus(collapsed ? `已折叠 ${headings.length} 个标题层级。` : `已展开 ${headings.length} 个标题层级。`);
 }
 
 function expandChapterContaining(element) {
-  const heading = chapterHeadingForElement(element);
-  if (!heading || heading.dataset.chapterCollapsed !== "true") return;
-  heading.dataset.chapterCollapsed = "false";
+  const collapsedHeadings = collapsedOutlineAncestorsForElement(element);
+  if (!collapsedHeadings.length) return;
+  collapsedHeadings.forEach((heading) => { heading.dataset.chapterCollapsed = "false"; });
   applyChapterFolding();
 }
 
@@ -3239,7 +3336,82 @@ function focusOutlineTarget(target) {
   syncParagraphStyleSelect();
 }
 
-function renderOutlineButtons(container, items, emptyText, indentBase = 1, options = {}) {
+function directOutlineItems() {
+  return allBlockElements()
+    .map(outlineItemFromBlock)
+    .filter((item) => directEditorChildForNode(item.element) === item.element && Number.isFinite(item.level));
+}
+
+function outlineParentElement(items, item) {
+  const index = items.findIndex((candidate) => candidate.element === item.element);
+  if (index < 0) return null;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    if (items[cursor].level < item.level) return items[cursor].element;
+  }
+  return null;
+}
+
+function outlineBranchNodes(items, item) {
+  const index = items.findIndex((candidate) => candidate.element === item.element);
+  const start = directEditorChildForNode(item.element);
+  if (index < 0 || !start) return [];
+  let end = null;
+  for (let cursor = index + 1; cursor < items.length; cursor += 1) {
+    if (items[cursor].level <= item.level) {
+      end = directEditorChildForNode(items[cursor].element);
+      break;
+    }
+  }
+  const children = Array.from(editor.children);
+  const startIndex = children.indexOf(start);
+  const endIndex = end ? children.indexOf(end) : children.length;
+  return startIndex < 0 ? [] : children.slice(startIndex, endIndex < 0 ? children.length : endIndex);
+}
+
+function canMoveOutlineItem(source, target, scope) {
+  if (!source || !target || source.element === target.element || source.level !== target.level) return false;
+  const items = directOutlineItems();
+  if (!items.some((item) => item.element === source.element) || !items.some((item) => item.element === target.element)) return false;
+  if (source.level === 0) return true;
+  // Nested headings can only be reordered among siblings, so a drag never
+  // changes the heading hierarchy by accident.
+  return outlineParentElement(items, source) === outlineParentElement(items, target);
+}
+
+function moveOutlineBranch(source, target, after, scope) {
+  if (!canMoveOutlineItem(source, target, scope)) return false;
+  const items = directOutlineItems();
+  const sourceNodes = outlineBranchNodes(items, source);
+  const targetNodes = outlineBranchNodes(items, target);
+  if (!sourceNodes.length || !targetNodes.length) return false;
+
+  recordUndoSnapshot();
+  const sourceSet = new Set(sourceNodes);
+  const remaining = Array.from(editor.children).filter((node) => !sourceSet.has(node));
+  const targetStart = remaining.indexOf(targetNodes[0]);
+  const targetEnd = remaining.indexOf(targetNodes[targetNodes.length - 1]);
+  if (targetStart < 0 || targetEnd < 0) return false;
+  const reference = after ? remaining[targetEnd + 1] : remaining[targetStart];
+  const fragment = document.createDocumentFragment();
+  sourceNodes.forEach((node) => fragment.appendChild(node));
+  editor.insertBefore(fragment, reference || null);
+
+  activePrimaryOutlineElement = source.element;
+  activePrimaryOutlineBlockIndex = null;
+  activeSecondaryOutlineElement = source.element;
+  activeSecondaryOutlineBlockIndex = null;
+  markDirty();
+  refreshOutline();
+  setStatus(`已移动标题：${source.textContent.trim() || "未命名标题"}`);
+  return true;
+}
+
+function clearOutlineDropIndicators(container) {
+  container?.querySelectorAll(".outline-item.drag-before, .outline-item.drag-after, .outline-item.is-dragging")
+    .forEach((node) => node.classList.remove("drag-before", "drag-after", "is-dragging"));
+}
+
+function renderOutlineButtons(container, items, emptyText, options = {}) {
   if (!container) return;
   const previousScrollTop = container.scrollTop;
   const previousActiveButton = container.querySelector(".outline-item.is-active");
@@ -3262,10 +3434,12 @@ function renderOutlineButtons(container, items, emptyText, indentBase = 1, optio
     button.type = "button";
     button.className = "outline-item";
     button.textContent = text;
-    const indentLevel = Math.max(0, Number(item.level) - indentBase);
-    if (indentLevel > 0) {
-      button.style.paddingLeft = `${(indentLevel + 1) * 12}px`;
-    }
+    button.draggable = Boolean(options.dragScope);
+    const indentLevel = Math.max(0, Number(item.level));
+    button.classList.add(`level-${indentLevel}`);
+    // Navigation indentation is structural: it reflects the outline level,
+    // rather than whitespace inserted into the heading text.
+    button.style.paddingLeft = `${indentLevel * 12}px`;
     if (item.element === options.activeElement) {
       button.classList.add("is-active");
       nextActiveButton = button;
@@ -3276,6 +3450,34 @@ function renderOutlineButtons(container, items, emptyText, indentBase = 1, optio
       options.onItemClick?.(item);
       focusOutlineTarget(item.element);
     });
+    if (options.dragScope) {
+      button.addEventListener("dragstart", (event) => {
+        outlineDragItem = item;
+        button.classList.add("is-dragging");
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", String(item.blockIndex));
+      });
+      button.addEventListener("dragover", (event) => {
+        if (!canMoveOutlineItem(outlineDragItem, item, options.dragScope)) return;
+        event.preventDefault();
+        clearOutlineDropIndicators(container);
+        const after = event.clientY > button.getBoundingClientRect().top + (button.getBoundingClientRect().height / 2);
+        button.classList.add(after ? "drag-after" : "drag-before");
+        event.dataTransfer.dropEffect = "move";
+      });
+      button.addEventListener("dragleave", () => button.classList.remove("drag-before", "drag-after"));
+      button.addEventListener("drop", (event) => {
+        if (!canMoveOutlineItem(outlineDragItem, item, options.dragScope)) return;
+        event.preventDefault();
+        const rect = button.getBoundingClientRect();
+        moveOutlineBranch(outlineDragItem, item, event.clientY > rect.top + (rect.height / 2), options.dragScope);
+        clearOutlineDropIndicators(container);
+      });
+      button.addEventListener("dragend", () => {
+        outlineDragItem = null;
+        clearOutlineDropIndicators(container);
+      });
+    }
     container.appendChild(button);
   });
   if (nextActiveButton && previousActiveOffset !== null) {
@@ -3540,8 +3742,9 @@ function renderSecondaryOutline(allItems) {
   if (secondaryOutlineLevelText) {
     secondaryOutlineLevelText.textContent = `L${outlineConfig.primaryMax + 1}–L${outlineConfig.secondaryMax}`;
   }
-  renderOutlineButtons(secondaryOutline, visibleItems, "当前标题下暂无子节", outlineConfig.primaryMax + 1, {
+  renderOutlineButtons(secondaryOutline, visibleItems, "当前标题下暂无子节", {
     activeElement: activeSecondaryOutlineElement,
+    dragScope: "secondary",
     onItemClick: (item) => rememberSecondaryOutlineItem(item, true),
   });
 }
@@ -3570,8 +3773,9 @@ function refreshOutline() {
     : primaryItems;
   const safeVisiblePrimaryItems = visiblePrimaryItems.length ? visiblePrimaryItems : primaryItems;
 
-  renderOutlineButtons(outline, safeVisiblePrimaryItems, "暂无标题导航", outlineConfig.primaryMin, {
+  renderOutlineButtons(outline, safeVisiblePrimaryItems, "暂无标题导航", {
     activeElement: activePrimaryOutlineElement,
+    dragScope: "primary",
     onItemClick: (item) => {
       rememberPrimaryOutlineItem(item, true);
       activeSecondaryOutlineElement = null;
@@ -3916,11 +4120,12 @@ function editorToDocument() {
   return payload;
 }
 
-function spansFromRuns(runs) {
-  return (runs || []).map((run) => {
+function appendRuns(parent, runs) {
+  const fragment = document.createDocumentFragment();
+  (runs || []).forEach((run) => {
     const [family, size, bold, italic, underline, background] = cloneDescriptor(run.descriptor);
     const span = document.createElement("span");
-    span.textContent = String(run.text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    const lines = String(run.text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
     span.style.fontFamily = family;
     span.style.fontSize = `${Math.max(Number(size) / 0.75, 1)}px`;
     span.style.fontWeight = bold ? "700" : "400";
@@ -3929,8 +4134,13 @@ function spansFromRuns(runs) {
     if (background) {
       span.style.backgroundColor = background;
     }
-    return span.outerHTML.replace(/\n/g, "<br>");
-  }).join("");
+    lines.forEach((line, index) => {
+      if (index) span.appendChild(document.createElement("br"));
+      span.appendChild(document.createTextNode(line));
+    });
+    fragment.appendChild(span);
+  });
+  parent.appendChild(fragment);
 }
 
 function renderParagraphBlock(block, parent) {
@@ -3938,7 +4148,7 @@ function renderParagraphBlock(block, parent) {
   const el = document.createElement(tagNameFromStyle(style).toLowerCase());
   el.dataset.styleId = (style && style.id) || "Normal";
   el.style.textAlign = { align_left: "left", align_center: "center", align_right: "right", align_justify: "justify" }[block.alignment] || (style ? style.alignment : "left");
-  el.innerHTML = spansFromRuns(block.runs);
+  appendRuns(el, block.runs);
   applyStyleVisuals(el, getStyleById(el.dataset.styleId));
   el.style.textAlign = { align_left: "left", align_center: "center", align_right: "right", align_justify: "justify" }[block.alignment] || el.style.textAlign;
   applyParagraphMetrics(el, {
@@ -3988,10 +4198,10 @@ function loadDocument(documentData) {
   };
   applyPageSizeToEditor();
   syncPageSizeControls();
-  editor.innerHTML = "";
+  const fragment = document.createDocumentFragment();
   (documentData.blocks || []).forEach((block) => {
     if (block.type === "table") {
-      editor.appendChild(renderTableBlock(block));
+      fragment.appendChild(renderTableBlock(block));
       return;
     }
     if (block.type === "image") {
@@ -4005,11 +4215,12 @@ function loadDocument(documentData) {
       if (block.width_px) img.style.width = `${block.width_px}px`;
       if (block.height_px) img.style.height = "auto";
       p.appendChild(img);
-      editor.appendChild(p);
+      fragment.appendChild(p);
       return;
     }
-    renderParagraphBlock(block, editor);
+    renderParagraphBlock(block, fragment);
   });
+  editor.replaceChildren(fragment);
   ensureStarterContent();
   refreshOutline();
   isLoadingDocument = false;
@@ -4018,7 +4229,12 @@ function loadDocument(documentData) {
 }
 
 function applyParagraphStyle(styleId) {
-  restoreEditorSelection();
+  // A toolbar control takes focus away from the editor. Only restore the
+  // cached range in that case: restoring it unconditionally can revive an
+  // old multi-paragraph selection after the user has clicked a single line.
+  if (!selectionInsideEditor()) {
+    restoreEditorSelection();
+  }
   const style = getStyleById(styleId);
   if (!style) return;
   const blocks = selectedBlockElements();
@@ -4719,8 +4935,12 @@ editor.addEventListener("beforeinput", (event) => {
   pendingDeleteStructure = (event.inputType || "").startsWith("delete") ? captureDeleteStructure() : null;
   recordUndoSnapshot({ coalesceInput: true });
 });
-editor.addEventListener("keyup", scheduleEditorRefresh);
-editor.addEventListener("click", syncParagraphStyleSelect);
+editor.addEventListener("click", () => {
+  // Capture synchronously so the next toolbar operation uses this click's
+  // collapsed caret range rather than an earlier multi-paragraph selection.
+  captureEditorSelection();
+  syncParagraphStyleSelect();
+});
 editor.addEventListener("click", (event) => {
   const block = event.target.closest && event.target.closest("p, h1, h2, h3");
   if (formatPainterPayload && block) {
@@ -4901,7 +5121,7 @@ pageStage.addEventListener("wheel", (event) => {
 
 window.addEventListener("resize", () => {
   requestAnimationFrame(() => {
-    positionChapterFoldOverlay(Array.from(editor.children).filter(isTopLevelChapterHeading));
+    positionChapterFoldOverlay(visibleOutlineHeadings());
   });
 });
 

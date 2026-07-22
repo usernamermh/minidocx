@@ -34,3 +34,10 @@ def test_style_update_preserves_run_backgrounds():
     assert "const preservedBackground = normalizeBackgroundColor(" in script
     assert "descriptorWithoutBackground[5] = \"\";" in script
     assert "if (preservedBackground) run.style.backgroundColor = preservedBackground;" in script
+
+
+def test_paragraph_style_prefers_live_editor_selection_over_cached_range():
+    script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "if (!selectionInsideEditor()) {\n    restoreEditorSelection();\n  }" in script
+    assert "editor.addEventListener(\"click\", () => {\n  // Capture synchronously" in script
