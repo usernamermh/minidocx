@@ -41,3 +41,5 @@ def test_paragraph_style_prefers_live_editor_selection_over_cached_range():
 
     assert "if (!selectionInsideEditor()) {\n    restoreEditorSelection();\n  }" in script
     assert "editor.addEventListener(\"click\", () => {\n  // Capture synchronously" in script
+    assert "let lastClickedParagraph = null;" in script
+    assert "? [lastClickedParagraph]\n    : selectedBlockElements();" in script

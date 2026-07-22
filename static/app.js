@@ -96,6 +96,7 @@ let isDirty = false;
 let isLoadingDocument = false;
 let editorZoom = 1;
 let savedSelectionRange = null;
+let lastClickedParagraph = null;
 let outlineFilter = { 0: true, 1: true, 2: true, 3: true };
 let showOtherOutlineBranches = true;
 let outlineConfig = { primaryMin: 0, primaryMax: 3, secondaryMax: 5 };
@@ -4237,7 +4238,11 @@ function applyParagraphStyle(styleId) {
   }
   const style = getStyleById(styleId);
   if (!style) return;
-  const blocks = selectedBlockElements();
+  // A plain click means "this paragraph only".  Keep that intent even after
+  // the style selector has taken focus, rather than reviving an older range.
+  const blocks = lastClickedParagraph && nodeInEditor(lastClickedParagraph)
+    ? [lastClickedParagraph]
+    : selectedBlockElements();
   if (!blocks.length) {
     setStatus("请先把光标放在要应用样式的段落中。");
     paragraphStyleSelect.value = styleId;
@@ -4939,6 +4944,10 @@ editor.addEventListener("click", () => {
   // Capture synchronously so the next toolbar operation uses this click's
   // collapsed caret range rather than an earlier multi-paragraph selection.
   captureEditorSelection();
+  const selection = window.getSelection();
+  lastClickedParagraph = selection?.rangeCount && selection.getRangeAt(0).collapsed
+    ? currentBlockElement()
+    : null;
   syncParagraphStyleSelect();
 });
 editor.addEventListener("click", (event) => {
@@ -5006,6 +5015,10 @@ editor.addEventListener("keydown", (event) => {
 });
 document.addEventListener("selectionchange", () => {
   if (document.activeElement === editor || editor.contains(document.activeElement) || editor.contains(window.getSelection()?.anchorNode)) {
+    const selection = window.getSelection();
+    if (selection?.rangeCount && !selection.getRangeAt(0).collapsed) {
+      lastClickedParagraph = null;
+    }
     debugLog("selectionchange", summarizeCurrentSelectionForDebug());
     window.setTimeout(syncSelectionUi, 0);
   }
